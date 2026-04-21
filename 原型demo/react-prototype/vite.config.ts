@@ -14,7 +14,8 @@ export default defineConfig({
     host: true, // 允许外部访问
     allowedHosts: [
       'cruelness-rearrange-satchel.ngrok-free.dev',
-      '.ngrok-free.dev' // 允许所有 ngrok 子域名
+      '.ngrok-free.dev', // 允许所有 ngrok 子域名
+      '.trycloudflare.com' // 允许所有 cloudflared 子域名
     ],
   },
   resolve: {
