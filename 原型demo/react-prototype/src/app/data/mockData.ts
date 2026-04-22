@@ -816,7 +816,7 @@ export interface BindingRule {
 
 export const mockBindingRules: BindingRule[] = [
   { id: 'br1', nodeId: 'smt02-line', nodeName: 'SMT02# Line', sourceField: 'LINE_CODE', targetField: 'line.code', bindingType: 'mapping', required: true, lastSynced: '2025-12-20 14:00', status: 'bound', sourceValue: 'SMT-02-HOU', targetValue: 'SMT-02-HOU' },
-  { id: 'br2', nodeId: 'smt02-line', nodeName: 'SMT02# Line', sourceField: 'LINE_NAME', targetField: 'line.name', bindingType: 'mapping', required: true, lastSynced: '2025-12-20 14:00', status: 'bound', sourceValue: 'SMT贴片线02号', targetValue: 'SMT02# Line' },
+  { id: 'br2', nodeId: 'smt02-line', nodeName: 'SMT02# Line', sourceField: 'LINE_NAME', targetField: 'line.name', bindingType: 'mapping', required: true, lastSynced: '2025-12-20 14:00', status: 'bound', sourceValue: 'SMT线02号', targetValue: 'SMT02# Line' },
   { id: 'br3', nodeId: 'smt02-line', nodeName: 'SMT02# Line', sourceField: 'STANDARD_CT', targetField: 'line.standardCT', bindingType: 'override', required: true, lastSynced: '2025-12-20 14:00', status: 'bound', sourceValue: '45s', targetValue: '45s' },
   { id: 'br4', nodeId: 'smt02-line', nodeName: 'SMT02# Line', sourceField: 'MAX_UPH', targetField: 'line.maxUPH', bindingType: 'merge', required: false, lastSynced: '2025-12-20 14:00', status: 'conflict', sourceValue: '1200', targetValue: '1350' },
   { id: 'br5', nodeId: 'stencil-printer-1', nodeName: '1# Stencil Printer', sourceField: 'EQUIP_CODE', targetField: 'equipment.code', bindingType: 'mapping', required: true, lastSynced: '2025-12-20 14:00', status: 'bound', sourceValue: 'DEK-NHZ-001', targetValue: 'DEK-NHZ-001' },

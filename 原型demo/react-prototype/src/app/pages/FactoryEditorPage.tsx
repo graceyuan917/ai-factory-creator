@@ -6,7 +6,7 @@ import {
   Eye, Send, Layers3, Database, Cpu, Settings, X, Edit2, Check,
   Save, ShieldCheck, RefreshCw,
   Link2, Activity, BarChart3, Zap, FileText, Wrench, BookOpen,
-  ClipboardList, Info, Wifi, WifiOff, Radio, ChevronUp, Menu,
+  ClipboardList, Info, Wifi, WifiOff, Radio,
   Search, Maximize2, RotateCcw, Move, MousePointer2, ZoomIn, ZoomOut, Grid3X3, Play, Pause,
   Navigation,
   GitBranch, Box, Building2, Cog, Copy, Trash2,
@@ -28,6 +28,7 @@ import { updateNodeStatusIfChanged, updateTreeStatuses } from '../utils/statusCa
 
 // ── Types ──────────────────────────────────────────────────────────────────
 type RightTab = 'base' | 'iot' | 'events' | 'monitoring' | 'metrics';
+type ViewMode = 'floor' | 'line' | 'equipment';
 
 type USDFileFormat = 'usd' | 'usda' | 'usdc' | 'usdz' | 'folder';
 interface USDFile {
@@ -48,6 +49,16 @@ function findNode(tree: FactoryNode, id: string): FactoryNode | null {
     if (found) return found;
   }
   return null;
+}
+
+/** Returns path from root to targetId (inclusive). Empty array if not found. */
+function getNodePath(root: FactoryNode, targetId: string): FactoryNode[] {
+  if (root.id === targetId) return [root];
+  for (const child of root.children ?? []) {
+    const path = getNodePath(child, targetId);
+    if (path.length > 0) return [root, ...path];
+  }
+  return [];
 }
 
 /** Returns the parent line node id for a given equipment node id, or null. */
@@ -144,26 +155,32 @@ type ConflictModalState = {
 };
 
 const PLATFORM_RECORDS: PlatformRecord[] = [
-  { id: 'plt-l-001', code: 'SMT-01-HOU', name: 'SMT贴片线01号', entityType: 'line', process: 'SMT制程',
-    fields: { LINE_CODE: { label: '产线编码', value: 'SMT-01-HOU' }, LINE_NAME: { label: '产线名称', value: 'SMT贴片线01号' }, STANDARD_CT: { label: '标准节拍', value: '45s' }, MAX_UPH: { label: '最大UPH', value: '1350 pcs/h' }, LOT_SIZE: { label: '批量大小', value: '500 pcs' } } },
-  { id: 'plt-l-002', code: 'SMT-02-HOU', name: 'SMT贴片线02号', entityType: 'line', process: 'SMT制程',
-    fields: { LINE_CODE: { label: '产线编码', value: 'SMT-02-HOU' }, LINE_NAME: { label: '产线名称', value: 'SMT贴片线02号' }, STANDARD_CT: { label: '标准节拍', value: '45s' }, MAX_UPH: { label: '最大UPH', value: '1200 pcs/h' } } },
+  { id: 'plt-l-001', code: 'SMT-01-HOU', name: 'SMT01号线', entityType: 'line', process: 'SMT制程',
+    fields: { 
+      // LINE_CODE: { label: '产线编码', value: 'SMT-01-HOU' }, LINE_NAME: { label: '产线名称', value: 'SMT01号线' }, STANDARD_CT: { label: '标准节拍', value: '45s' }, MAX_UPH: { label: '最大UPH', value: '1350 pcs/h' }, LOT_SIZE: { label: '批量大小', value: '500 pcs' } 
+    } },
+  { id: 'plt-l-002', code: 'SMT-02-HOU', name: 'SMT02号线', entityType: 'line', process: 'SMT制程',
+    fields: {
+      // LINE_CODE: { label: '产线编码', value: 'SMT-02-HOU' }, LINE_NAME: { label: '产线名称', value: 'SMT02号线' }, STANDARD_CT: { label: '标准节拍', value: '45s' }, MAX_UPH: { label: '最大UPH', value: '1200 pcs/h' } 
+    } },
   { id: 'plt-l-003', code: 'ASSY-01-HOU', name: 'ASSY组装线01号', entityType: 'line', process: 'ASSY制程',
-    fields: { LINE_CODE: { label: '产线编码', value: 'ASSY-01-HOU' }, LINE_NAME: { label: '产线名称', value: 'ASSY组装线01号' }, STANDARD_CT: { label: '标准节拍', value: '60s' }, MAX_UPH: { label: '最大UPH', value: '800 pcs/h' } } },
+    fields: { 
+      // LINE_CODE: { label: '产线编码', value: 'ASSY-01-HOU' }, LINE_NAME: { label: '产线名称', value: 'ASSY组装线01号' }, STANDARD_CT: { label: '标准节拍', value: '60s' }, MAX_UPH: { label: '最大UPH', value: '800 pcs/h' } 
+    } },
   { id: 'plt-e-001', code: 'DEK-NHZ-001', name: 'DEK全自动印刷机#1', entityType: 'equipment', parentLineId: 'smt02-line',
-    fields: { EQUIP_CODE: { label: '设备编码', value: 'DEK-NHZ-001' }, EQUIP_NAME: { label: '设备名称', value: 'DEK NeoHorizon Z 印刷机' }, STATUS: { label: '设备状态', value: '运行中' }, INSTALL_DATE: { label: '安装日期', value: '2025.12.20' } } },
+    fields: { EQUIP_CODE: { label: '所属产线', value: 'SMT01号线' }, STATUS: { label: '设备状态', value: '运行中' }, INSTALL_DATE: { label: '安装日期', value: '2025.12.20' } } },
   { id: 'plt-e-002', code: 'JUKI-FX-001', name: 'JUKI高速贴片机#1', entityType: 'equipment', parentLineId: 'smt02-line',
-    fields: { EQUIP_CODE: { label: '设备编码', value: 'JUKI-FX-001' }, EQUIP_NAME: { label: '设备名称', value: 'JUKI KE-3020 高速贴片机' }, STATUS: { label: '设备状态', value: '运行中' }, INSTALL_DATE: { label: '安装日期', value: '2025.11.15' } } },
+    fields: { EQUIP_CODE: { label: '所属产线', value: 'SMT01号线' }, STATUS: { label: '设备状态', value: '运行中' }, INSTALL_DATE: { label: '安装日期', value: '2025.11.15' } } },
   { id: 'plt-e-003', code: 'KE-RSF-001', name: 'Kurtz Ersa回流焊炉#1', entityType: 'equipment', parentLineId: 'smt02-line',
-    fields: { EQUIP_CODE: { label: '设备编码', value: 'KE-RSF-001' }, EQUIP_NAME: { label: '设备名称', value: 'Kurtz Ersa HOTFLOW 3/20' }, STATUS: { label: '设备状态', value: '维保中' }, INSTALL_DATE: { label: '安装日期', value: '2025.12.20' } } },
+    fields: { EQUIP_CODE: { label: '所属产线', value: 'SMT01号线' }, STATUS: { label: '设备状态', value: '维保中' }, INSTALL_DATE: { label: '安装日期', value: '2025.12.20' } } },
   { id: 'plt-e-004', code: 'DEK-NHZ-002', name: 'DEK全自动印刷机#2', entityType: 'equipment', parentLineId: 'smt01-line',
-    fields: { EQUIP_CODE: { label: '设备编码', value: 'DEK-NHZ-002' }, EQUIP_NAME: { label: '设备名称', value: 'DEK NeoHorizon Z 印刷机' }, STATUS: { label: '设备状态', value: '运行中' }, INSTALL_DATE: { label: '安装日期', value: '2025.12.10' } } },
+    fields: { EQUIP_CODE: { label: '所属产线', value: 'SMT01号线' }, STATUS: { label: '设备状态', value: '运行中' }, INSTALL_DATE: { label: '安装日期', value: '2025.12.10' } } },
   { id: 'plt-e-005', code: 'DEK-NHZ-003', name: 'DEK全自动印刷机#3', entityType: 'equipment', parentLineId: 'smt01-line',
-    fields: { EQUIP_CODE: { label: '设备编码', value: 'DEK-NHZ-003' }, EQUIP_NAME: { label: '设备名称', value: 'DEK NeoHorizon Z 印刷机' }, STATUS: { label: '设备状态', value: '运行中' }, INSTALL_DATE: { label: '安装日期', value: '2025.12.12' } } },
+    fields: { EQUIP_CODE: { label: '所属产线', value: 'SMT01号线' }, STATUS: { label: '设备状态', value: '运行中' }, INSTALL_DATE: { label: '安装日期', value: '2025.12.12' } } },
   { id: 'plt-e-006', code: 'JUKI-FX-002', name: 'JUKI高速贴片机#2', entityType: 'equipment', parentLineId: 'smt01-line',
-    fields: { EQUIP_CODE: { label: '设备编码', value: 'JUKI-FX-002' }, EQUIP_NAME: { label: '设备名称', value: 'JUKI KE-3020 高速贴片机' }, STATUS: { label: '设备状态', value: '运行中' }, INSTALL_DATE: { label: '安装日期', value: '2025.11.10' } } },
+    fields: { EQUIP_CODE: { label: '所属产线', value: 'SMT01号线' }, STATUS: { label: '设备状态', value: '运行中' }, INSTALL_DATE: { label: '安装日期', value: '2025.11.10' } } },
   { id: 'plt-e-007', code: 'JUKI-FX-003', name: 'JUKI高速贴片机#3', entityType: 'equipment', parentLineId: 'smt01-line',
-    fields: { EQUIP_CODE: { label: '设备编码', value: 'JUKI-FX-003' }, EQUIP_NAME: { label: '设备名称', value: 'JUKI KE-3020 高速贴片机' }, STATUS: { label: '设备状态', value: '运行中' }, INSTALL_DATE: { label: '安装日期', value: '2025.11.12' } } },
+    fields: { EQUIP_CODE: { label: '所属产线', value: 'SMT01号线' }, STATUS: { label: '设备状态', value: '运行中' }, INSTALL_DATE: { label: '安装日期', value: '2025.11.12' } } },
 ];
 
 const INITIAL_BINDING_MAP: Record<string, BindingRecord> = {
@@ -229,6 +246,9 @@ const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(
     new Set(['houston-p9', 'smt-process', 'smt01-line', 'smt02-line', 'smt03-line', 'assembly-process', 'pth-process', 'california', 'new-factory'])
   );
+  const [viewMode, setViewMode] = useState<ViewMode>('floor');
+  const [viewContextId, setViewContextId] = useState<string | null>(null);
+
   const [showValidation, setShowValidation] = useState(false);
   const [savedMessage, setSavedMessage] = useState(false);
   const [showUSDUpload, setShowUSDUpload] = useState(false);
@@ -242,6 +262,56 @@ const [leftCollapsed, setLeftCollapsed] = useState(false);
     () => findNode(factoryTree, selectedNodeId),
     [factoryTree, selectedNodeId]
   );
+
+  const viewContextNode = useMemo(
+    () => (viewContextId ? findNode(factoryTree, viewContextId) : null),
+    [factoryTree, viewContextId]
+  );
+
+  const breadcrumb = useMemo((): FactoryNode[] => {
+    if (viewMode === 'floor') return [factoryTree];
+    const contextId = viewContextId ?? selectedNodeId;
+    return getNodePath(factoryTree, contextId);
+  }, [viewMode, viewContextId, selectedNodeId, factoryTree]);
+
+  function handleTreeNodeClick(nodeId: string) {
+    const node = findNode(factoryTree, nodeId);
+    if (!node) return;
+    setSelectedNodeId(nodeId);
+    setRightTab('base');
+    // Auto-expand all ancestors in tree
+    const path = getNodePath(factoryTree, nodeId);
+    setExpandedNodes((prev) => {
+      const next = new Set(prev);
+      path.forEach((n) => next.add(n.id));
+      return next;
+    });
+    // View navigation: single-click drives view switching
+    if (node.type === 'factory' || node.type === 'process') {
+      // Always go back to floor view
+      setViewMode('floor');
+      setViewContextId(null);
+    } else if (node.type === 'line') {
+      setViewMode('line');
+      setViewContextId(node.id);
+    } else if (node.type === 'equipment') {
+      setViewMode('equipment');
+      setViewContextId(node.id);
+    }
+  }
+
+  function handleDrillIn(nodeId: string) {
+    const node = findNode(factoryTree, nodeId);
+    if (!node) return;
+    setSelectedNodeId(nodeId);
+    if (node.type === 'line') {
+      setViewMode('line');
+      setViewContextId(nodeId);
+    } else if (node.type === 'equipment') {
+      setViewMode('equipment');
+      setViewContextId(nodeId);
+    }
+  }
 
   function toggleExpand(id: string) {
     setExpandedNodes((prev) => {
@@ -391,8 +461,9 @@ const [leftCollapsed, setLeftCollapsed] = useState(false);
                   depth={0}
                   selectedId={selectedNodeId}
                   expandedIds={expandedNodes}
-                  onSelect={(id) => setSelectedNodeId(id)}
+                  onSelect={handleTreeNodeClick}
                   onToggle={toggleExpand}
+                  onDrillIn={handleDrillIn}
                 />
               </div>
             </>
@@ -402,11 +473,15 @@ const [leftCollapsed, setLeftCollapsed] = useState(false);
         {/* ── Center Viewport ── */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Viewport Area */}
-          <div className="flex-1 relative overflow-hidden bg-[#07111e]">
-            <Viewport3D selectedNode={selectedNode} />
-
-            {/* Viewport Toolbar (left side) */}
-            <ViewportToolbar />
+          <div className="flex-1 flex flex-col overflow-hidden bg-[#07111e]">
+            <Viewport3D
+              selectedNode={selectedNode}
+              viewMode={viewMode}
+              viewContextNode={viewContextNode}
+              breadcrumb={breadcrumb}
+              onBreadcrumbClick={handleTreeNodeClick}
+              onCanvasNodeClick={handleTreeNodeClick}
+            />
           </div>
         </div>
 
@@ -638,88 +713,225 @@ function FloorNavPanel() {
   );
 }
 
-function Viewport3D({ selectedNode }: { selectedNode: FactoryNode | null }) {
-  const isEquipment = selectedNode?.type === 'equipment';
-  const isFactory = selectedNode?.type === 'factory';
+// Mock equipment slots for line view
+const MOCK_EQUIPMENT_SLOTS = [
+  { id: 'slot-a', label: '印刷机', color: 'bg-blue-900/40 border-blue-700/50' },
+  { id: 'slot-b', label: '贴片机', color: 'bg-purple-900/40 border-purple-700/50' },
+  { id: 'slot-c', label: '回流焊炉', color: 'bg-amber-900/40 border-amber-700/50' },
+  { id: 'slot-d', label: 'AOI检测', color: 'bg-emerald-900/40 border-emerald-700/50' },
+  { id: 'slot-e', label: '包装机', color: 'bg-cyan-900/40 border-cyan-700/50' },
+];
+
+function Viewport3D({
+  selectedNode,
+  viewMode,
+  viewContextNode,
+  breadcrumb,
+  onBreadcrumbClick,
+  onCanvasNodeClick,
+}: {
+  selectedNode: FactoryNode | null;
+  viewMode: ViewMode;
+  viewContextNode: FactoryNode | null;
+  breadcrumb: FactoryNode[];
+  onBreadcrumbClick: (id: string) => void;
+  onCanvasNodeClick: (id: string) => void;
+}) {
+  // ── Floor view: derive highlight type from selected node ──
+  const highlightType = viewMode === 'floor' ? selectedNode?.type ?? null : null;
 
   return (
-    <div className="w-full h-full relative flex items-center justify-center overflow-hidden bg-[#07111e]">
-      {/* Grid floor */}
-      <div
-        className="absolute inset-0"
-        style={{
-          backgroundImage: `
-            linear-gradient(rgba(30,58,95,0.35) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(30,58,95,0.35) 1px, transparent 1px)
-          `,
-          backgroundSize: '48px 48px',
-        }}
-      />
+    <div className="w-full h-full relative flex flex-col overflow-hidden bg-[#07111e]">
 
-      {/* Factory model visual */}
-      <div className="relative" style={{ transform: 'perspective(1200px) rotateX(25deg) scale(0.88)' }}>
-        {isFactory ? (
-          /* Full factory view */
-          <div className="relative">
-            <img
-              src="/images/factory-full.png"
-              alt="Factory 3D Model"
-              className="w-[820px] h-[480px] object-cover rounded-sm"
-              style={{ filter: 'grayscale(35%) contrast(1.1) brightness(0.85)' }}
-            />
-            {/* Selection dashed border for factory */}
-            <div className="absolute inset-0 border-2 border-dashed border-blue-500/60 rounded-sm pointer-events-none" />
-            {/* Blue selector icon */}
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-              <div className="w-12 h-12 border-2 border-blue-400 rounded-lg flex items-center justify-center bg-blue-600/20 animate-pulse">
-                <Box size={22} className="text-blue-400" />
-              </div>
+      {/* ── Breadcrumb bar ── */}
+      {breadcrumb.length > 0 && (
+        <div className="flex-shrink-0 flex items-center gap-1 px-3 py-1 bg-[#050f1a]/80 border-b border-[#142235]">
+          {breadcrumb.map((crumb, i) => {
+            const isLast = i === breadcrumb.length - 1;
+            const viewLabel: Record<string, string> = { factory: '楼层视图', process: '楼层视图', line: '产线视图', equipment: '设备视图' };
+            return (
+              <React.Fragment key={crumb.id}>
+                {i > 0 && <ChevronRight size={9} className="text-slate-700 flex-shrink-0" />}
+                <button
+                  onClick={() => !isLast && onBreadcrumbClick(crumb.id)}
+                  className={`text-[10px] truncate max-w-[120px] transition-colors ${
+                    isLast
+                      ? 'text-slate-400 cursor-default'
+                      : 'text-slate-600 hover:text-blue-400 cursor-pointer'
+                  }`}
+                >
+                  {crumb.name}
+                </button>
+                {isLast && (
+                  <span className="ml-0.5 px-1 py-0.5 rounded text-[9px] bg-blue-600/15 text-blue-500 border border-blue-600/20 flex-shrink-0">
+                    {viewLabel[crumb.type] ?? '楼层视图'}
+                  </span>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Main canvas area ── */}
+      <div className="flex-1 relative flex items-center justify-center overflow-hidden">
+        {/* Viewport Toolbar */}
+        <ViewportToolbar />
+
+        {/* Grid floor */}
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage: `
+              linear-gradient(rgba(30,58,95,0.35) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(30,58,95,0.35) 1px, transparent 1px)
+            `,
+            backgroundSize: '48px 48px',
+          }}
+        />
+
+        {/* ══ FLOOR VIEW ══ */}
+        {viewMode === 'floor' && (
+          <div
+            className={`relative rounded border-2 cursor-pointer transition-all select-none ${
+              highlightType === 'factory'
+                ? 'border-blue-400/80 animate-pulse shadow-lg shadow-blue-500/20'
+                : 'border-[#1e3a55]'
+            }`}
+            style={{ width: 580, height: 360 }}
+            onClick={() => onCanvasNodeClick(breadcrumb[0]?.id ?? '')}
+          >
+            {/* Factory label */}
+            <div className="absolute top-2 left-3 text-[10px] text-slate-500 font-semibold uppercase tracking-wider select-none">
+              楼层视图 · {breadcrumb[0]?.name ?? '工厂'}
             </div>
-          </div>
-        ) : isEquipment ? (
-          /* Equipment closeup view */
-          <div className="relative">
-            <img
-              src="https://images.unsplash.com/photo-1748349221526-33b51820b21e?w=820&q=80"
-              alt="Equipment 3D Model"
-              className="w-[820px] h-[420px] object-cover rounded-sm"
-              style={{ filter: 'grayscale(25%) contrast(1.15) brightness(0.8)' }}
-            />
-            {/* Selected equipment highlight */}
+
+            {/* Process zone — top area */}
             <div
-              className="absolute border-2 border-dashed border-blue-400 rounded"
-              style={{ top: '25%', left: '30%', width: '40%', height: '50%' }}
+              className={`absolute rounded border transition-all cursor-pointer ${
+                highlightType === 'process'
+                  ? 'bg-amber-500/20 border-amber-400/70 animate-pulse'
+                  : 'bg-amber-900/10 border-amber-900/30 hover:bg-amber-500/10 hover:border-amber-500/40'
+              }`}
+              style={{ top: 36, left: 16, width: '58%', height: '34%' }}
+              title="制程区域"
+              onClick={(e) => e.stopPropagation()}
             >
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                <div className="w-6 h-6 border border-blue-400 rounded flex items-center justify-center bg-blue-500/30">
-                  <ChevronUp size={12} className="text-blue-300" />
-                </div>
-              </div>
+              <span className="absolute top-1.5 left-2 text-[9px] text-amber-500/70 font-medium">制程区域</span>
             </div>
-            {/* Blue highlight overlay */}
+
+            {/* Line zone — bottom strip */}
             <div
-              className="absolute rounded bg-blue-500/15 border border-blue-400/40"
-              style={{ top: '25%', left: '30%', width: '40%', height: '50%', pointerEvents: 'none' }}
-            />
-          </div>
-        ) : (
-          /* Line / Process view */
-          <div className="relative">
-            <img
-              src="https://images.unsplash.com/photo-1669003152226-b37b58281b84?w=820&q=80"
-              alt="Production Line 3D Model"
-              className="w-[820px] h-[420px] object-cover rounded-sm"
-              style={{ filter: 'grayscale(30%) contrast(1.1) brightness(0.82)' }}
-            />
+              className={`absolute rounded border transition-all cursor-pointer ${
+                highlightType === 'line' || highlightType === 'equipment'
+                  ? 'bg-emerald-500/20 border-emerald-400/70'
+                  : 'bg-emerald-900/10 border-emerald-900/30 hover:bg-emerald-500/10 hover:border-emerald-500/40'
+              }`}
+              style={{ top: '52%', left: 16, right: 16, height: '34%' }}
+              title="产线区域"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <span className="absolute top-1.5 left-2 text-[9px] text-emerald-500/70 font-medium">产线地板区域</span>
+
+              {/* Equipment callout pin */}
+              {highlightType === 'equipment' && (
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none">
+                  <div className="bg-[#0d1f33] border border-blue-400/60 rounded px-2 py-0.5 text-[10px] text-blue-300 whitespace-nowrap shadow-lg">
+                    {selectedNode?.name}
+                  </div>
+                  <div className="w-px h-3 bg-blue-400/50" />
+                  <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                </div>
+              )}
+            </div>
           </div>
         )}
+
+        {/* ══ LINE VIEW ══ */}
+        {viewMode === 'line' && (
+          <div
+            className="relative flex flex-col gap-3 select-none"
+            style={{ width: 580 }}
+            onClick={() => viewContextNode && onCanvasNodeClick(viewContextNode.id)}
+          >
+            {/* Line container */}
+            <div className="rounded border border-emerald-700/50 bg-emerald-900/10 p-4 cursor-pointer hover:border-emerald-500/60 transition-all">
+              <div className="text-[10px] text-emerald-400/80 font-semibold uppercase tracking-wider mb-3">
+                产线视图 · {viewContextNode?.name ?? '产线'}
+              </div>
+              {/* Conveyor + equipment blocks */}
+              <div className="relative flex items-center gap-3 py-2">
+                {/* Conveyor track */}
+                <div className="absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 bg-slate-700/50 border-y border-slate-600/30 rounded -z-0" />
+                {(viewContextNode?.children?.length
+                  ? viewContextNode.children
+                  : MOCK_EQUIPMENT_SLOTS.map((s) => ({ id: s.id, name: s.label, type: 'equipment' as const }))
+                ).map((eq, i) => {
+                  const isSelected = eq.id === selectedNode?.id;
+                  const colors = [
+                    { bg: 'bg-blue-900/50', border: 'border-blue-700/60', text: 'text-blue-300' },
+                    { bg: 'bg-purple-900/50', border: 'border-purple-700/60', text: 'text-purple-300' },
+                    { bg: 'bg-amber-900/50', border: 'border-amber-700/60', text: 'text-amber-300' },
+                    { bg: 'bg-emerald-900/50', border: 'border-emerald-700/60', text: 'text-emerald-300' },
+                    { bg: 'bg-cyan-900/50', border: 'border-cyan-700/60', text: 'text-cyan-300' },
+                  ];
+                  const c = colors[i % colors.length];
+                  return (
+                    <button
+                      key={eq.id}
+                      onClick={(e) => { e.stopPropagation(); onCanvasNodeClick(eq.id); }}
+                      className={`relative z-10 flex-shrink-0 w-24 h-20 rounded border-2 flex flex-col items-center justify-center gap-1 transition-all ${
+                        isSelected
+                          ? 'border-blue-400 bg-blue-600/25 shadow-lg shadow-blue-500/20'
+                          : `${c.bg} ${c.border} hover:border-blue-400/60`
+                      }`}
+                    >
+                      <Cog size={16} className={isSelected ? 'text-blue-300' : c.text} />
+                      <span className={`text-[9px] text-center leading-tight px-1 ${isSelected ? 'text-blue-200' : 'text-slate-400'}`}>
+                        {eq.name}
+                      </span>
+                      {isSelected && (
+                        <div className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-blue-400 border border-[#07111e]" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="text-[10px] text-slate-600 text-center">点击设备方块查看详情 · 点击空白区域选中产线</div>
+          </div>
+        )}
+
+        {/* ══ EQUIPMENT VIEW ══ */}
+        {viewMode === 'equipment' && (
+          <div
+            className="flex flex-col items-center gap-3 cursor-pointer select-none"
+            onClick={() => viewContextNode && onCanvasNodeClick(viewContextNode.id)}
+          >
+            {/* Equipment block */}
+            <div className="rounded-xl border-2 border-blue-400/70 bg-blue-900/20 shadow-xl shadow-blue-500/10 flex flex-col items-center justify-center gap-3 transition-all"
+              style={{ width: 280, height: 200 }}
+            >
+              <div className="w-14 h-14 rounded-xl border-2 border-blue-400/60 bg-blue-600/20 flex items-center justify-center animate-pulse">
+                <Cog size={28} className="text-blue-400" />
+              </div>
+              <div className="text-center">
+                <div className="text-sm font-semibold text-slate-200">
+                  {viewContextNode?.name ?? selectedNode?.name ?? '设备'}
+                </div>
+                <div className="text-[10px] text-slate-500 mt-0.5">设备视图</div>
+              </div>
+            </div>
+            <div className="text-[10px] text-slate-600">点击方块选中设备</div>
+          </div>
+        )}
+
+        {/* Floor / Overlay Nav Panel (楼层视图才显示) */}
+        {viewMode === 'floor' && <FloorNavPanel />}
       </div>
 
-      {/* Floor / Overlay Nav Panel */}
-      <FloorNavPanel />
-
-      {/* Status bar */}
-      <div className="absolute bottom-0 left-0 right-0 h-6 bg-[#050f1a]/90 border-t border-[#142235] flex items-center px-3 gap-4 text-[10px] text-slate-600">
+      {/* ── Status bar ── */}
+      <div className="flex-shrink-0 h-6 bg-[#050f1a]/90 border-t border-[#142235] flex items-center px-3 gap-4 text-[10px] text-slate-600">
         {selectedNode && (
           <>
             <span className="flex items-center gap-1">
@@ -730,6 +942,13 @@ function Viewport3D({ selectedNode }: { selectedNode: FactoryNode | null }) {
             <span className="flex items-center gap-1">
               <span className="text-slate-500">Type:</span>
               <span className="text-blue-400 capitalize">{selectedNode.type}</span>
+            </span>
+            <span className="text-[#142235]">|</span>
+            <span className="flex items-center gap-1">
+              <span className="text-slate-500">View:</span>
+              <span className="text-emerald-400 capitalize">
+                {viewMode === 'floor' ? 'Floor' : viewMode === 'line' ? 'Line' : 'Equipment'}
+              </span>
             </span>
           </>
         )}
@@ -1792,12 +2011,12 @@ function DataBindingSection({
 
         <div className="space-y-0.5">
           <ConfigRow label="External ID" value={bindingRecord.externalId} />
-          <ConfigRow label="Source Name" value={bindingRecord.externalName} />
+          {/* <ConfigRow label="Source Name" value={bindingRecord.externalName} /> */}
           <ConfigRow label="Last Sync" value={bindingRecord.lastSync} />
         </div>
 
         {/* Platform field preview — max 4 entries (PRD Step 1) */}
-        {platformRecord && (
+        {/* {platformRecord && (
           <div className="bg-[#040d18] border border-[#1e3a55] rounded p-2 space-y-0.5">
             <div className="text-[9px] text-slate-500 mb-1">Platform Data Fields</div>
             {Object.entries(platformRecord.fields).slice(0, 4).map(([k, v]) => (
@@ -1807,7 +2026,7 @@ function DataBindingSection({
               </div>
             ))}
           </div>
-        )}
+        )} */}
 
         {unbindBtn}
       </div>
@@ -2347,7 +2566,7 @@ function ErrorDot({ message }: { message: string }) {
 // Tree Node Component
 // ══════════════════════════════════════════════════════════════════════════════
 function TreeNode({
-  node, depth, selectedId, expandedIds, onSelect, onToggle,
+  node, depth, selectedId, expandedIds, onSelect, onToggle, onDrillIn,
 }: {
   node: FactoryNode;
   depth: number;
@@ -2355,10 +2574,13 @@ function TreeNode({
   expandedIds: Set<string>;
   onSelect: (id: string) => void;
   onToggle: (id: string) => void;
+  onDrillIn: (id: string) => void;
 }) {
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const hasChildren = (node.children?.length ?? 0) > 0;
   const isExpanded = expandedIds.has(node.id);
   const isSelected = node.id === selectedId;
+  const canDrillIn = node.type === 'line' || node.type === 'equipment';
 
   const icon = (() => {
     // 错误状态优先，显示红色图标
@@ -2397,6 +2619,7 @@ function TreeNode({
     <div>
       <div
         onClick={() => { onSelect(node.id); }}
+        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (canDrillIn) setCtxMenu({ x: e.clientX, y: e.clientY }); }}
         className={`flex items-center gap-1 px-2 py-1 cursor-pointer rounded-sm mx-1 group transition-colors text-[11px] ${
           node.status === 'error'
             ? isSelected
@@ -2426,6 +2649,15 @@ function TreeNode({
 
         {/* Hover actions */}
         <div className="hidden group-hover:flex items-center gap-0.5 ml-1 flex-shrink-0">
+          {canDrillIn && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDrillIn(node.id); }}
+              className="text-slate-600 hover:text-blue-400 p-0.5 transition-colors"
+              title={node.type === 'line' ? '进入产线视图' : '进入设备视图'}
+            >
+              <Maximize2 size={9} />
+            </button>
+          )}
           {node.type !== 'equipment' && (
             <button
               onClick={(e) => { e.stopPropagation(); }}
@@ -2456,6 +2688,39 @@ function TreeNode({
         </div>
       </div>
 
+      {/* Right-click context menu */}
+      {ctxMenu && createPortal(
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setCtxMenu(null)} />
+          <div
+            className="fixed z-50 bg-[#0d1f33] border border-[#1e3a55] rounded-lg shadow-xl py-1 text-[11px] min-w-[140px]"
+            style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          >
+            <button
+              onClick={() => { onDrillIn(node.id); setCtxMenu(null); }}
+              className="w-full text-left px-3 py-1.5 text-blue-300 hover:bg-[#142235] flex items-center gap-2"
+            >
+              <Maximize2 size={10} />
+              {node.type === 'line' ? '进入产线视图' : '进入设备视图'}
+            </button>
+            <div className="my-1 border-t border-[#142235]" />
+            <button
+              onClick={() => setCtxMenu(null)}
+              className="w-full text-left px-3 py-1.5 text-slate-400 hover:bg-[#142235] flex items-center gap-2"
+            >
+              <Copy size={10} /> 复制
+            </button>
+            <button
+              onClick={() => setCtxMenu(null)}
+              className="w-full text-left px-3 py-1.5 text-red-400 hover:bg-[#142235] flex items-center gap-2"
+            >
+              <Trash2 size={10} /> 删除
+            </button>
+          </div>
+        </>,
+        document.body
+      )}
+
       {/* Children */}
       {hasChildren && isExpanded && (
         <div>
@@ -2468,6 +2733,7 @@ function TreeNode({
               expandedIds={expandedIds}
               onSelect={onSelect}
               onToggle={onToggle}
+              onDrillIn={onDrillIn}
             />
           ))}
         </div>
