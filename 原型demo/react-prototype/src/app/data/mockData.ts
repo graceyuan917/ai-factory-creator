@@ -1,5 +1,6 @@
 export type NodeStatus = 'configured' | 'partial' | 'empty' | 'error';
 export type ProjectStatus = 'draft' | 'complete' | 'published' | 'archived';
+export type AssetStatus = 'draft' | 'active' | 'inactive' | 'archived';
 
 export interface FactoryNode {
   id: string;
@@ -64,6 +65,24 @@ export interface AssetItem {
   manufacturer?: string;
   model?: string;
   usdPath?: string;
+  tags?: string[];
+  status: AssetStatus;
+  referencedByProjects?: number;
+  versions?: AssetVersion[];
+}
+
+export interface AssetVersion {
+  id: string;
+  versionLabel: string;
+  status: AssetStatus;
+  usdPath: string;
+  polyCount: string;
+  fileSize: string;
+  createdAt: string;
+  createdBy: string;
+  description: string;
+  copiedFrom?: string;
+  referencedByProjects?: number;
   tags?: string[];
 }
 
@@ -333,6 +352,7 @@ export const houstonFactoryTree: FactoryNode = {
               type: 'equipment',
               iotConfigured: true,
               dataPointCount: 9,
+              errorMessage: 'Binding Error: platform record key identifier changed, unable to auto-match',
             },
             {
               id: 'reflow-furnace-2',
@@ -542,8 +562,8 @@ export const assetLibraryCategories: AssetLibraryCategory[] = [
         name: 'SMT Lines',
         count: 4,
         items: [
-          { id: 'smt-complete-line', name: 'SMT Complete Line', type: 'Production Line', category: 'smt', subcategory: 'smt-lines', thumbnail: 'https://images.unsplash.com/photo-1748349221526-33b51820b21e?w=300&q=80', manufacturer: 'Generic', model: 'SMT-L-001' },
-          { id: 'smt-mini-line', name: 'Mini SMT Line', type: 'Production Line', category: 'smt', subcategory: 'smt-lines', thumbnail: 'https://images.unsplash.com/photo-1748349221526-33b51820b21e?w=300&q=80', manufacturer: 'Generic', model: 'SMT-L-002' },
+          { id: 'smt-complete-line', name: 'SMT Complete Line', type: 'Production Line', category: 'smt', subcategory: 'smt-lines', thumbnail: 'https://images.unsplash.com/photo-1748349221526-33b51820b21e?w=300&q=80', manufacturer: 'Generic', model: 'SMT-L-001', status: 'active' },
+          { id: 'smt-mini-line', name: 'Mini SMT Line', type: 'Production Line', category: 'smt', subcategory: 'smt-lines', thumbnail: 'https://images.unsplash.com/photo-1748349221526-33b51820b21e?w=300&q=80', manufacturer: 'Generic', model: 'SMT-L-002', status: 'draft' },
         ],
       },
       {
@@ -551,8 +571,28 @@ export const assetLibraryCategories: AssetLibraryCategory[] = [
         name: 'Stencil Printers',
         count: 5,
         items: [
-          { id: 'dek-printer', name: 'DEK NeoHorizon 03iX', type: 'Equipment', category: 'smt', subcategory: 'stencil-printers', thumbnail: 'https://images.unsplash.com/photo-1748349221526-33b51820b21e?w=300&q=80', manufacturer: 'DEK', model: 'NeoHorizon 03iX' },
-          { id: 'mpm-printer', name: 'MPM Momentum', type: 'Equipment', category: 'smt', subcategory: 'stencil-printers', thumbnail: 'https://images.unsplash.com/photo-1748349221526-33b51820b21e?w=300&q=80', manufacturer: 'MPM', model: 'Momentum II' },
+          {
+            id: 'dek-printer_V1.0', name: 'DEK NeoHorizon 03iX', type: 'Equipment', category: 'smt', subcategory: 'stencil-printers',
+            thumbnail: 'https://images.unsplash.com/photo-1748349221526-33b51820b21e?w=300&q=80',
+            manufacturer: 'DEK', model: 'NeoHorizon 03iX', status: 'inactive', referencedByProjects: 1,
+            // versions: [
+            //   {
+            //     id: 'dek-v1', versionLabel: 'V1.0', status: 'inactive',
+            //     usdPath: '/assets/usd/dek_neohorizon_v1.usd', polyCount: '98,300', fileSize: '14.7 MB',
+            //     createdAt: '2023-07-22', createdBy: 'Chen Jing',
+            //     description: 'Initial stencil printer model. Camera assembly simplified.',
+            //     referencedByProjects: 0,
+            //   },
+            //   {
+            //     id: 'dek-v2', versionLabel: 'V2.0', status: 'active',
+            //     usdPath: '/assets/usd/dek_neohorizon_v2.usd', polyCount: '112,600', fileSize: '17.3 MB',
+            //     createdAt: '2024-02-14', createdBy: 'Chen Jing',
+            //     description: 'Rebuilt camera and vision system geometry. Aligned with real DEK spec sheet.',
+            //     referencedByProjects: 1,
+            //   },
+            // ],
+          },
+          { id: 'mpm-printer', name: 'MPM Momentum', type: 'Equipment', category: 'smt', subcategory: 'stencil-printers', thumbnail: 'https://images.unsplash.com/photo-1748349221526-33b51820b21e?w=300&q=80', manufacturer: 'MPM', model: 'Momentum II', status: 'inactive' },
         ],
       },
       {
@@ -560,17 +600,52 @@ export const assetLibraryCategories: AssetLibraryCategory[] = [
         name: 'Chip Mounters',
         count: 8,
         items: [
-          { id: 'sm471', name: 'SM471 Plus Chip Mounter', type: 'Equipment', category: 'smt', subcategory: 'chip-mounters', thumbnail: 'https://images.unsplash.com/photo-1748349221526-33b51820b21e?w=300&q=80', manufacturer: 'Samsung', model: 'SM471 Plus' },
-          { id: 'sm481', name: 'SM481 Plus Chip Mounter', type: 'Equipment', category: 'smt', subcategory: 'chip-mounters', thumbnail: 'https://images.unsplash.com/photo-1748349221526-33b51820b21e?w=300&q=80', manufacturer: 'Samsung', model: 'SM481 Plus' },
-          { id: 'fnx9', name: 'Fuji NXT3', type: 'Equipment', category: 'smt', subcategory: 'chip-mounters', thumbnail: 'https://images.unsplash.com/photo-1748349221526-33b51820b21e?w=300&q=80', manufacturer: 'Fuji', model: 'NXT3' },
+          {
+            id: 'sm471', name: 'SM471 Plus Chip Mounter', type: 'Equipment', category: 'smt', subcategory: 'chip-mounters',
+            thumbnail: 'https://images.unsplash.com/photo-1748349221526-33b51820b21e?w=300&q=80',
+            manufacturer: 'Samsung', model: 'SM471 Plus', status: 'draft', referencedByProjects: 3,
+            // versions: [
+            //   {
+            //     id: 'sm471-v1', versionLabel: 'V1.0', status: 'archived',
+            //     usdPath: '/assets/usd/sm471_v1.usd', polyCount: '124,500', fileSize: '18.2 MB',
+            //     createdAt: '2023-03-10', createdBy: 'Zhang Wei',
+            //     description: 'Initial release of SM471 Plus chip mounter model.',
+            //     referencedByProjects: 0,
+            //   },
+            //   {
+            //     id: 'sm471-v2', versionLabel: 'V2.0', status: 'active',
+            //     usdPath: '/assets/usd/sm471_v2.usd', polyCount: '138,200', fileSize: '21.4 MB',
+            //     createdAt: '2023-11-05', createdBy: 'Li Ming',
+            //     description: 'Updated nozzle head geometry and feeder rail detail. Used in Houston P9 factory (legacy line).',
+            //     referencedByProjects: 2,
+            //   },
+            //   {
+            //     id: 'sm471-v3', versionLabel: 'V3.0', status: 'active',
+            //     usdPath: '/assets/usd/sm471_v3.usd', polyCount: '152,800', fileSize: '24.6 MB',
+            //     createdAt: '2024-06-18', createdBy: 'Li Ming',
+            //     description: 'High-fidelity rework with PBR materials. Used in Shenzhen P3 new build.',
+            //     referencedByProjects: 1,
+            //   },
+            //   {
+            //     id: 'sm471-v4', versionLabel: 'V4.0', status: 'draft',
+            //     usdPath: '/assets/usd/sm471_v4_wip.usd', polyCount: '160,000', fileSize: '27.1 MB',
+            //     createdAt: '2024-12-01', createdBy: 'Wang Fang',
+            //     description: 'Work-in-progress: adding conveyor animation rig.',
+            //     referencedByProjects: 0,
+            //   },
+            // ],
+          },
+          { id: 'sm481', name: 'SM481 Plus Chip Mounter', type: 'Equipment', category: 'smt', subcategory: 'chip-mounters', thumbnail: 'https://images.unsplash.com/photo-1748349221526-33b51820b21e?w=300&q=80', manufacturer: 'Samsung', model: 'SM481 Plus', status: 'active' },
+          { id: 'fnx9', name: 'Fuji NXT3', type: 'Equipment', category: 'smt', subcategory: 'chip-mounters', thumbnail: 'https://images.unsplash.com/photo-1748349221526-33b51820b21e?w=300&q=80', manufacturer: 'Fuji', model: 'NXT3', status: 'draft' },
         ],
       },
       {
         id: 'reflow-ovens',
         name: 'Reflow Ovens',
-        count: 4,
+        count: 5,
         items: [
-          { id: 'kurtz-ersa', name: 'Kurtz Ersa Reflow 1000', type: 'Equipment', category: 'smt', subcategory: 'reflow-ovens', thumbnail: 'https://images.unsplash.com/photo-1748349221526-33b51820b21e?w=300&q=80', manufacturer: 'Kurtz Ersa', model: 'Reflow 1000' },
+          { id: 'kurtz-ersa', name: 'Kurtz Ersa Reflow 1000', type: 'Equipment', category: 'smt', subcategory: 'reflow-ovens', thumbnail: 'https://images.unsplash.com/photo-1748349221526-33b51820b21e?w=300&q=80', manufacturer: 'Kurtz Ersa', model: 'Reflow 1000', status: 'active' },
+	          { id: 'heller-reflow', name: 'Heller 1800EXL Reflow Oven', type: 'Equipment', category: 'smt', subcategory: 'reflow-ovens', thumbnail: 'https://images.unsplash.com/photo-1748349221526-33b51820b21e?w=300&q=80', manufacturer: 'Heller', model: '1800EXL', status: 'archived' },
         ],
       },
     ],
@@ -587,8 +662,8 @@ export const assetLibraryCategories: AssetLibraryCategory[] = [
         name: 'Assembly Lines',
         count: 6,
         items: [
-          { id: 'module-assy', name: 'Module Assy Line', type: 'Production Line', category: 'assembly', subcategory: 'assy-lines', thumbnail: 'https://images.unsplash.com/photo-1647427060118-4911c9821b82?w=300&q=80', manufacturer: 'Generic' },
-          { id: 'auto-assy', name: 'Automation Assembly Line', type: 'Production Line', category: 'assembly', subcategory: 'assy-lines', thumbnail: 'https://images.unsplash.com/photo-1647427060118-4911c9821b82?w=300&q=80', manufacturer: 'Generic' },
+          { id: 'module-assy', name: 'Module Assy Line', type: 'Production Line', category: 'assembly', subcategory: 'assy-lines', thumbnail: 'https://images.unsplash.com/photo-1647427060118-4911c9821b82?w=300&q=80', manufacturer: 'Generic', status: 'active' },
+          { id: 'auto-assy', name: 'Automation Assembly Line', type: 'Production Line', category: 'assembly', subcategory: 'assy-lines', thumbnail: 'https://images.unsplash.com/photo-1647427060118-4911c9821b82?w=300&q=80', manufacturer: 'Generic', status: 'draft' },
         ],
       },
       {
@@ -596,8 +671,28 @@ export const assetLibraryCategories: AssetLibraryCategory[] = [
         name: 'Robots & Arms',
         count: 9,
         items: [
-          { id: 'kuka-kr10', name: 'KUKA KR 10 R1100-2', type: 'Equipment', category: 'assembly', subcategory: 'robots', thumbnail: 'https://images.unsplash.com/photo-1647427060118-4911c9821b82?w=300&q=80', manufacturer: 'KUKA', model: 'KR 10 R1100-2' },
-          { id: 'fanuc-lr', name: 'Fanuc LR Mate 200iD', type: 'Equipment', category: 'assembly', subcategory: 'robots', thumbnail: 'https://images.unsplash.com/photo-1647427060118-4911c9821b82?w=300&q=80', manufacturer: 'Fanuc', model: 'LR Mate 200iD' },
+          {
+            id: 'kuka-kr10', name: 'KUKA KR 10 R1100-2', type: 'Equipment', category: 'assembly', subcategory: 'robots',
+            thumbnail: 'https://images.unsplash.com/photo-1647427060118-4911c9821b82?w=300&q=80',
+            manufacturer: 'KUKA', model: 'KR 10 R1100-2', status: 'active', referencedByProjects: 2,
+            versions: [
+              {
+                id: 'kuka-v1', versionLabel: 'V1.0', status: 'archived',
+                usdPath: '/assets/usd/kuka_kr10_v1.usd', polyCount: '210,400', fileSize: '32.1 MB',
+                createdAt: '2023-01-15', createdBy: 'Liu Yang',
+                description: 'Base model. Joint covers and cable management not modeled.',
+                referencedByProjects: 0,
+              },
+              {
+                id: 'kuka-v2', versionLabel: 'V2.0', status: 'active',
+                usdPath: '/assets/usd/kuka_kr10_v2.usd', polyCount: '248,700', fileSize: '38.5 MB',
+                createdAt: '2024-03-28', createdBy: 'Liu Yang',
+                description: 'Full joint articulation rig added. Cable harness geometry included.',
+                referencedByProjects: 2,
+              },
+            ],
+          },
+          { id: 'fanuc-lr', name: 'Fanuc LR Mate 200iD', type: 'Equipment', category: 'assembly', subcategory: 'robots', thumbnail: 'https://images.unsplash.com/photo-1647427060118-4911c9821b82?w=300&q=80', manufacturer: 'Fanuc', model: 'LR Mate 200iD', status: 'inactive', referencedByProjects: 1 },
         ],
       },
     ],
@@ -614,7 +709,7 @@ export const assetLibraryCategories: AssetLibraryCategory[] = [
         name: 'Packing Lines',
         count: 5,
         items: [
-          { id: 'auto-pack-line', name: 'Auto Packing Line A', type: 'Production Line', category: 'packing', subcategory: 'packing-lines', thumbnail: 'https://images.unsplash.com/photo-1755937303351-57ad0f70f773?w=300&q=80', manufacturer: 'Generic' },
+          { id: 'auto-pack-line', name: 'Auto Packing Line A', type: 'Production Line', category: 'packing', subcategory: 'packing-lines', thumbnail: 'https://images.unsplash.com/photo-1755937303351-57ad0f70f773?w=300&q=80', manufacturer: 'Generic', status: 'active' },
         ],
       },
       {
@@ -622,7 +717,7 @@ export const assetLibraryCategories: AssetLibraryCategory[] = [
         name: 'Packing Machines',
         count: 7,
         items: [
-          { id: 'box-packer', name: 'Box Packer Machine', type: 'Equipment', category: 'packing', subcategory: 'packing-machines', thumbnail: 'https://images.unsplash.com/photo-1755937303351-57ad0f70f773?w=300&q=80', manufacturer: 'Generic' },
+          { id: 'box-packer', name: 'Box Packer Machine', type: 'Equipment', category: 'packing', subcategory: 'packing-machines', thumbnail: 'https://images.unsplash.com/photo-1755937303351-57ad0f70f773?w=300&q=80', manufacturer: 'Generic', status: 'draft' },
         ],
       },
     ],
@@ -637,10 +732,39 @@ export const assetLibraryCategories: AssetLibraryCategory[] = [
       {
         id: 'industrial-robots',
         name: 'Industrial Robots',
-        count: 18,
+        count: 19,
         items: [
-          { id: 'abb-irb', name: 'ABB IRB 6700', type: 'Equipment', category: 'robotic', subcategory: 'industrial-robots', thumbnail: 'https://images.unsplash.com/photo-1761195696590-3490ea770aa1?w=300&q=80', manufacturer: 'ABB', model: 'IRB 6700' },
-          { id: 'yaskawa-motoman', name: 'Yaskawa Motoman GP8', type: 'Equipment', category: 'robotic', subcategory: 'industrial-robots', thumbnail: 'https://images.unsplash.com/photo-1761195696590-3490ea770aa1?w=300&q=80', manufacturer: 'Yaskawa', model: 'Motoman GP8' },
+          {
+            id: 'abb-irb', name: 'ABB IRB 6700', type: 'Equipment', category: 'robotic', subcategory: 'industrial-robots',
+            thumbnail: 'https://images.unsplash.com/photo-1761195696590-3490ea770aa1?w=300&q=80',
+            manufacturer: 'ABB', model: 'IRB 6700', status: 'active', referencedByProjects: 4,
+            versions: [
+              {
+                id: 'abb-v1', versionLabel: 'V1.0', status: 'archived',
+                usdPath: '/assets/usd/abb_irb6700_v1.usd', polyCount: '185,200', fileSize: '28.4 MB',
+                createdAt: '2022-09-05', createdBy: 'Zhang Wei',
+                description: 'First 3D model of IRB 6700. Approximated geometry.',
+                referencedByProjects: 0,
+              },
+              {
+                id: 'abb-v2', versionLabel: 'V2.0', status: 'active',
+                usdPath: '/assets/usd/abb_irb6700_v2.usd', polyCount: '224,500', fileSize: '34.7 MB',
+                createdAt: '2023-05-18', createdBy: 'Zhang Wei',
+                description: 'Precision rebuild from ABB STEP files. Used in older factory projects.',
+                referencedByProjects: 2,
+              },
+              {
+                id: 'abb-v3', versionLabel: 'V3.0', status: 'active',
+                usdPath: '/assets/usd/abb_irb6700_v3.usd', polyCount: '267,100', fileSize: '41.2 MB',
+                createdAt: '2024-08-30', createdBy: 'Wang Fang',
+                description: 'PBR material overhaul, wrist cable detail added. For new factory deployments.',
+                referencedByProjects: 2,
+                tags: ['PBR', 'high-fidelity'],
+              },
+            ],
+          },
+          { id: 'yaskawa-motoman', name: 'Yaskawa Motoman GP8', type: 'Equipment', category: 'robotic', subcategory: 'industrial-robots', thumbnail: 'https://images.unsplash.com/photo-1761195696590-3490ea770aa1?w=300&q=80', manufacturer: 'Yaskawa', model: 'Motoman GP8', status: 'active', referencedByProjects: 2 },
+	          { id: 'kawasaki-duro', name: 'Kawasaki Duo A200', type: 'Equipment', category: 'robotic', subcategory: 'industrial-robots', thumbnail: 'https://images.unsplash.com/photo-1761195696590-3490ea770aa1?w=300&q=80', manufacturer: 'Kawasaki', model: 'Duo A200', status: 'archived' },
         ],
       },
       {
@@ -648,7 +772,7 @@ export const assetLibraryCategories: AssetLibraryCategory[] = [
         name: 'Collaborative Robots',
         count: 13,
         items: [
-          { id: 'ur5e', name: 'Universal Robots UR5e', type: 'Equipment', category: 'robotic', subcategory: 'cobots', thumbnail: 'https://images.unsplash.com/photo-1761195696590-3490ea770aa1?w=300&q=80', manufacturer: 'Universal Robots', model: 'UR5e' },
+          { id: 'ur5e', name: 'Universal Robots UR5e', type: 'Equipment', category: 'robotic', subcategory: 'cobots', thumbnail: 'https://images.unsplash.com/photo-1761195696590-3490ea770aa1?w=300&q=80', manufacturer: 'Universal Robots', model: 'UR5e', status: 'draft' },
         ],
       },
     ],
@@ -860,18 +984,18 @@ export function generateValidationItems(status: ProjectStatus): ValidationItem[]
   const isPub = status === 'published';
   const isComp = status === 'complete' || isPub;
   return [
-    { id: 'v1', label: 'Factory basic information complete', pass: isComp, note: 'Factory Name, ID, Address, Site Size' },
-    { id: 'v2', label: 'Factory production capacity configured', pass: isComp, note: 'Capacity, UPH, CT values set' },
-    { id: 'v3', label: 'All process areas have production lines', pass: isComp, note: 'Each process must contain at least 1 line' },
-    { id: 'v4', label: 'All lines have standard CT configured', pass: isComp, note: 'Standard Cycle Time is required' },
-    { id: 'v5', label: 'All lines have Leader information', pass: isComp, note: '2.1 Leader Info must be filled' },
-    { id: 'v6', label: 'Lot information configured for lines', pass: isComp, note: '2.2 Lot Info configured' },
-    { id: 'v7', label: 'Equipment basic (Ledger) info complete', pass: isComp, note: 'Equipment Name, ID, Type, Brand, Install Date' },
-    { id: 'v8', label: 'Equipment IoT connections configured', pass: false, note: 'Reflow Soldering Furnace IoT not configured' },
-    { id: 'v9', label: 'Data collection points mapped (≥5 per device)', pass: isComp, note: 'All equipment data points assigned' },
-    { id: 'v10', label: 'Error codes and alarm rules defined', pass: isComp, note: '2.3 ErrorCode & Alarm configured' },
-    { id: 'v11', label: 'Status monitoring thresholds set', pass: false, note: 'Packing Process monitoring not configured' },
-    { id: 'v12', label: '3D USD assets linked to all nodes', pass: isComp, note: '3D model references assigned' },
+    { id: 'v1', label: 'Factory instance requested information incompleted', pass: false, note: 'Cycle time of SMT02# Line is missing' },
+    // { id: 'v2', label: 'Factory instance production capacity configured', pass: isComp, note: 'Capacity, UPH, CT values set' },
+    { id: 'v3', label: 'Production line quantity checked', pass: isComp, note: 'Line quantity of each process matches business data' },
+    { id: 'v4', label: 'Equipment quantity checked', pass: isComp, note: 'Total Equipment quantity and Equipment quantity of each line matches business data' },
+    { id: 'v5', label: 'All instances information are aligned with the latest business data', pass: isComp, note: 'Sync time: 2026-04-23' },
+    // { id: 'v6', label: 'IoT information configured for lines', pass: isComp, note: 'IoT Info configured' },
+    // { id: 'v7', label: 'Equipment basic (Ledger) info complete', pass: isComp, note: 'Equipment Name, ID, Type, Brand, Install Date' },
+    // { id: 'v8', label: 'Equipment IoT connections configured', pass: false, note: 'Reflow Soldering Furnace IoT not configured' },
+    // { id: 'v9', label: 'Data collection points mapped (≥5 per device)', pass: isComp, note: 'All equipment data points assigned' },
+    // { id: 'v10', label: 'Error codes and alarm rules defined', pass: isComp, note: '2.3 ErrorCode & Alarm configured' },
+    // { id: 'v11', label: 'Status monitoring thresholds set', pass: false, note: 'Packing Process monitoring not configured' },
+    // { id: 'v12', label: '3D USD assets linked to all nodes', pass: isComp, note: '3D model references assigned' },
   ];
 }
 

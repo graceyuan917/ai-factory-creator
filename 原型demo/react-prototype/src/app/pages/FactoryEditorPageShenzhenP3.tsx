@@ -435,6 +435,7 @@ export function FactoryEditorPageShenzhenP3() {
 const VIEWPORT_TOOLS = [
   { id: 'select',   icon: MousePointer2, label: 'Select (S)' },
   { id: 'move',     icon: Move,          label: 'Move (M)' },
+  { id: 'rotate',   icon: RotateCcw,     label: 'Rotate (R)' },
   { id: 'zoomin',   icon: ZoomIn,        label: 'Zoom In (+)' },
   { id: 'zoomout',  icon: ZoomOut,       label: 'Zoom Out (−)' },
 ] as const;

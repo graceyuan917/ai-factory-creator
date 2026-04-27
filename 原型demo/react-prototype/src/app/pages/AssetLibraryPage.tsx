@@ -1,12 +1,20 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import {
   ChevronLeft, ChevronRight, ChevronDown, Search, Package, Layers3,
-  Grid3X3, List, Plus, Edit2, Eye, X, SlidersHorizontal, ChevronUp, Check,
+  Grid3X3, List, Plus, Edit2, X, SlidersHorizontal, Check,
   Move, RotateCcw, MousePointer2, ZoomIn, Maximize2, Settings,
-  Cpu, GitBranch, Box, Activity, Wifi, BarChart3, Info, History,
+  Cpu, GitBranch, Box, Activity, Wifi, BarChart3, Info, History, Trash2,
+  Download, CheckSquare, Copy, ExternalLink,
 } from 'lucide-react';
-import { assetLibraryCategories, type AssetItem } from '../data/mockData';
+import { assetLibraryCategories, type AssetItem, type AssetLibraryCategory, type AssetSubCategory, type AssetStatus } from '../data/mockData';
+
+const ASSET_STATUS_CONFIG: Record<AssetStatus, { label: string; cls: string }> = {
+  draft:    { label: 'Draft',   cls: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
+  active:   { label: 'Active',  cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
+  inactive: { label: 'Inactive', cls: 'bg-slate-500/15 text-slate-400 border-slate-500/30' },
+  archived: { label: 'Archived', cls: 'bg-orange-500/15 text-orange-400 border-orange-500/30' },
+};
 
 // ── 制程 & 类型 filter options (固定) ─────────────────────────────────────
 const PROCESS_OPTIONS = [
@@ -19,408 +27,10 @@ const PROCESS_OPTIONS = [
 
 const TYPE_OPTIONS = ['产线', '设备', '公辅机房', '治具', '仓储'];
 
-// ── Mock asset structure tree (for viewer) ──────────────────────────────────
-function buildAssetTree(asset: AssetItem) {
-  const isLine = asset.type?.includes('Line') || asset.type?.includes('产线');
-  if (isLine) {
-    return {
-      id: asset.id,
-      name: asset.name,
-      type: 'line' as const,
-      children: [
-        {
-          id: `${asset.id}-s1`, name: 'Station 1 — Printing', type: 'station' as const,
-          children: [
-            { id: `${asset.id}-s1-p`, name: 'Stencil Printer', type: 'equipment' as const, children: [] },
-          ],
-        },
-        {
-          id: `${asset.id}-s2`, name: 'Station 2 — Placement', type: 'station' as const,
-          children: [
-            { id: `${asset.id}-s2-m1`, name: 'Chip Mounter #1', type: 'equipment' as const, children: [] },
-            { id: `${asset.id}-s2-m2`, name: 'Chip Mounter #2', type: 'equipment' as const, children: [] },
-          ],
-        },
-        {
-          id: `${asset.id}-s3`, name: 'Station 3 — Soldering', type: 'station' as const,
-          children: [
-            { id: `${asset.id}-s3-r`, name: 'Reflow Oven', type: 'equipment' as const, children: [] },
-          ],
-        },
-      ],
-    };
-  }
-  return {
-    id: asset.id,
-    name: asset.name,
-    type: 'equipment' as const,
-    children: [
-      { id: `${asset.id}-mech`, name: 'Mechanical Structure', type: 'component' as const, children: [] },
-      { id: `${asset.id}-ctrl`, name: 'Control System', type: 'component' as const, children: [] },
-      { id: `${asset.id}-sens`, name: 'Sensor Array', type: 'component' as const, children: [] },
-    ],
-  };
-}
+const LOCAL_STORAGE_KEY = 'asset-library-categories';
 
-// ✅ 修复：完整定义 TreeNode 类型（包含 children）
-interface TreeNode {
-  id: string;
-  name: string;
-  type: 'line' | 'station' | 'equipment' | 'component';
-  children?: TreeNode[];
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// AssetViewerPage — full-screen asset editor (like FactoryEditorPage)
-// ══════════════════════════════════════════════════════════════════════════════
-function AssetViewerPage({
-  asset,
-  onBack,
-}: {
-  asset: AssetItem;
-  onBack: () => void;
-}) {
-  const tree = useMemo(() => buildAssetTree(asset), [asset]);
-  const [selectedNodeId, setSelectedNodeId] = useState(asset.id);
-  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(
-    new Set([asset.id, `${asset.id}-s1`, `${asset.id}-s2`, `${asset.id}-s3`])
-  );
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(
-    new Set(['basic-info', '3d-model', 'dimensions', 'iot-config', 'production', 'maintenance'])
-  );
-
-  function toggleSection(id: string) {
-    setExpandedSections((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }
-  const [viewTool, setViewTool] = useState<'select' | 'move' | 'rotate' | 'zoom'>('select');
-  const emptyBiz = { protocol: '', ipAddress: '', port: '', standardCT: '', capacityPerHr: '', availability: '', mtbf: '', lastMaintenance: '' };
-  const [bizData, setBizData] = useState(emptyBiz);
-  const [pendingBiz, setPendingBiz] = useState(emptyBiz);
-  const [isEditingBiz, setIsEditingBiz] = useState(false);
-
-  function startEditBiz() { setPendingBiz({ ...bizData }); setIsEditingBiz(true); }
-  function saveBiz() { setBizData({ ...pendingBiz }); setIsEditingBiz(false); }
-  function cancelBiz() { setIsEditingBiz(false); }
-  function updatePending(key: keyof typeof emptyBiz, value: string) {
-    setPendingBiz(prev => ({ ...prev, [key]: value }));
-  }
-  const displayBiz = isEditingBiz ? pendingBiz : bizData;
-
-  function toggleExpand(id: string) {
-    setExpandedNodes((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }
-
-  // ✅ 修复：安全递归渲染，移除非空断言 ! 和 as 强制类型
-  function renderNode(node: TreeNode, depth = 0): React.ReactNode {
-    const hasChildren = !!node.children && node.children.length > 0;
-    const expanded = expandedNodes.has(node.id);
-    const selected = selectedNodeId === node.id;
-    const icon =
-      node.type === 'line' ? <GitBranch size={11} className="flex-shrink-0" /> :
-      node.type === 'station' ? <Box size={11} className="flex-shrink-0" /> :
-      node.type === 'component' ? <Settings size={11} className="flex-shrink-0" /> :
-      <Cpu size={11} className="flex-shrink-0" />;
-
-    return (
-      <div key={node.id}>
-        <button
-          onClick={() => {
-            setSelectedNodeId(node.id);
-            if (hasChildren) toggleExpand(node.id);
-          }}
-          style={{ paddingLeft: `${8 + depth * 14}px` }}
-          className={`w-full flex items-center gap-1.5 pr-3 py-1.5 text-left text-[11px] transition-colors ${
-            selected
-              ? 'bg-blue-600/15 text-blue-300'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-[#0e243a]'
-          }`}
-        >
-          {hasChildren ? (
-            <ChevronDown
-              size={10}
-              className={`flex-shrink-0 transition-transform ${expanded ? '' : '-rotate-90'}`}
-            />
-          ) : (
-            <span className="w-2.5 flex-shrink-0" />
-          )}
-          {icon}
-          <span className="flex-1 truncate">{node.name}</span>
-        </button>
-
-        {/* ✅ 修复：安全判断 + 无类型断言 */}
-        {hasChildren && expanded && node.children?.map((child) => renderNode(child, depth + 1))}
-      </div>
-    );
-  }
-
-  const viewTools = [
-    { id: 'select', icon: <MousePointer2 size={13} />, title: 'Select' },
-    { id: 'move',   icon: <Move size={13} />,          title: 'Move' },
-    { id: 'rotate', icon: <RotateCcw size={13} />,     title: 'Rotate' },
-    { id: 'zoom',   icon: <ZoomIn size={13} />,        title: 'Zoom' },
-  ] as const;
-
-
-  return (
-    <div className="flex flex-col h-screen bg-[#07111e] text-slate-100 overflow-hidden">
-      {/* Header */}
-      <header className="h-11 bg-[#050f1a] border-b border-[#142235] flex items-center px-4 gap-3 flex-shrink-0 z-20">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1.5 text-slate-400 hover:text-slate-200 text-[11px] transition-colors flex-shrink-0"
-        >
-          <ChevronLeft size={13} /> Asset Library
-        </button>
-        <div className="w-px h-4 bg-[#1e3a55]" />
-        <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded bg-blue-600 flex items-center justify-center flex-shrink-0">
-            <Layers3 size={11} />
-          </div>
-          <span className="text-[11px] font-semibold tracking-widest text-blue-300 uppercase">AI Factory Creator</span>
-        </div>
-        <div className="w-px h-4 bg-[#1e3a55]" />
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <Package size={12} className="text-blue-400 flex-shrink-0" />
-          <span className="text-[11px] font-medium text-slate-200 truncate">{asset.name}</span>
-          <span className="text-[9px] px-2 py-0.5 rounded border border-blue-500/40 bg-blue-500/10 text-blue-400 flex-shrink-0">
-            {asset.type}
-          </span>
-        </div>
-      </header>
-
-      {/* Body */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left: Asset Tree */}
-        <aside className="w-52 bg-[#050f1a] border-r border-[#142235] flex flex-col flex-shrink-0 overflow-hidden">
-          <div className="px-3 py-2.5 border-b border-[#142235] flex items-center gap-1.5">
-            <Activity size={11} className="text-blue-400" />
-            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Asset Structure</span>
-          </div>
-          <div className="flex-1 overflow-y-auto py-1">
-            {renderNode(tree)}
-          </div>
-        </aside>
-
-        {/* Center: Viewport */}
-        <div className="flex-1 flex flex-col overflow-hidden bg-[#07111e]">
-          {/* Viewport Toolbar */}
-          <div className="h-9 bg-[#050f1a] border-b border-[#142235] flex items-center px-3 gap-1 flex-shrink-0">
-            {viewTools.map((t) => (
-              <button
-                key={t.id}
-                title={t.title}
-                onClick={() => setViewTool(t.id)}
-                className={`w-7 h-7 rounded flex items-center justify-center transition-colors ${
-                  viewTool === t.id
-                    ? 'bg-blue-600/25 text-blue-300'
-                    : 'text-slate-500 hover:text-slate-200 hover:bg-[#142235]'
-                }`}
-              >
-                {t.icon}
-              </button>
-            ))}
-            <div className="w-px h-4 bg-[#1e3a55] mx-1" />
-            <button
-              title="Fit View"
-              className="w-7 h-7 rounded flex items-center justify-center text-slate-500 hover:text-slate-200 hover:bg-[#142235] transition-colors"
-            >
-              <Maximize2 size={13} />
-            </button>
-            <button
-              title="Toggle Grid"
-              className="w-7 h-7 rounded flex items-center justify-center text-slate-500 hover:text-slate-200 hover:bg-[#142235] transition-colors"
-            >
-              <Grid3X3 size={13} />
-            </button>
-            <div className="ml-auto flex items-center gap-2 text-[10px] text-slate-600">
-              <span>3D Asset Viewer</span>
-              <span className="text-[9px] text-slate-700">·</span>
-              <span>{asset.category?.toUpperCase()}</span>
-            </div>
-          </div>
-
-          {/* Canvas */}
-          <div className="flex-1 relative overflow-hidden"
-            style={{
-              backgroundImage: `
-                linear-gradient(rgba(20,34,53,0.6) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(20,34,53,0.6) 1px, transparent 1px)
-              `,
-              backgroundSize: '40px 40px',
-            }}
-          >
-            {/* Center glow */}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="w-96 h-96 rounded-full bg-blue-600/5 blur-3xl" />
-            </div>
-
-            {/* Asset image centered */}
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="relative">
-                <div className="w-[420px] h-[280px] rounded-xl overflow-hidden border border-[#1e3a55]/60 shadow-2xl shadow-blue-900/20">
-                  <img
-                    src={asset.thumbnail}
-                    alt={asset.name}
-                    className="w-full h-full object-cover opacity-85"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#07111e]/40 to-transparent" />
-                </div>
-                {/* Selection highlight */}
-                <div className="absolute -inset-1 rounded-xl border border-blue-500/40 pointer-events-none" />
-                {/* Name label */}
-                <div className="absolute -bottom-7 left-0 right-0 text-center text-[11px] text-blue-300 font-medium">
-                  {asset.name}
-                </div>
-              </div>
-            </div>
-
-            {/* Coordinates overlay */}
-            <div className="absolute bottom-3 left-3 text-[9px] text-slate-700 font-mono">
-              X: 0.00  Y: 0.00  Z: 0.00
-            </div>
-
-            {/* Zoom indicator */}
-            <div className="absolute bottom-3 right-3 flex items-center gap-2">
-              <button className="w-6 h-6 rounded bg-[#0b1d30] border border-[#142235] flex items-center justify-center text-slate-500 hover:text-slate-200 transition-colors text-xs">−</button>
-              <span className="text-[10px] text-slate-600">100%</span>
-              <button className="w-6 h-6 rounded bg-[#0b1d30] border border-[#142235] flex items-center justify-center text-slate-500 hover:text-slate-200 transition-colors text-xs">+</button>
-            </div>
-          </div>
-        </div>
-
-        {/* Right: Properties Panel */}
-        <aside className="w-64 bg-[#050f1a] border-l border-[#142235] flex flex-col flex-shrink-0 overflow-hidden">
-          <div className="px-3 py-2 border-b border-[#142235] flex-shrink-0 flex items-center justify-between">
-            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Properties</span>
-            <div className="flex items-center gap-0.5">
-              {isEditingBiz ? (
-                <>
-                  <button onClick={saveBiz} title="Save" className="w-6 h-6 flex items-center justify-center rounded text-green-400 hover:bg-green-500/15 transition-colors">
-                    <Check size={12} />
-                  </button>
-                  <button onClick={cancelBiz} title="Cancel" className="w-6 h-6 flex items-center justify-center rounded text-slate-400 hover:bg-[#142235] transition-colors">
-                    <X size={12} />
-                  </button>
-                </>
-              ) : (
-                <button onClick={startEditBiz} title="Edit" className="w-6 h-6 flex items-center justify-center rounded text-slate-500 hover:text-slate-300 hover:bg-[#142235] transition-colors">
-                  <Edit2 size={12} />
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto">
-            {/* Basic Info */}
-            <AccordionSection title="Basic Info" id="basic-info" expanded={expandedSections.has('basic-info')} onToggle={toggleSection}>
-              <PropRow label="Name" value={asset.name} />
-              <PropRow label="Type" value={asset.type} />
-              <PropRow label="Category" value={asset.category?.toUpperCase() ?? '—'} />
-              {asset.manufacturer && <PropRow label="Manufacturer" value={asset.manufacturer} />}
-              {asset.model && <PropRow label="Model No." value={asset.model} />}
-            </AccordionSection>
-
-            {/* 3D Model */}
-            <AccordionSection title="3D Model" id="3d-model" expanded={expandedSections.has('3d-model')} onToggle={toggleSection}>
-              <PropRow label="USD Path" value={`/Assets/${asset.id}.usd`} />
-              <PropRow label="Format" value="USD" />
-              <PropRow label="Poly Count" value="~24,500" />
-              <PropRow label="LOD Levels" value="3" />
-            </AccordionSection>
-
-            {/* Dimensions */}
-            <AccordionSection title="Dimensions" id="dimensions" expanded={expandedSections.has('dimensions')} onToggle={toggleSection}>
-              <PropRow label="Width" value="2400 mm" />
-              <PropRow label="Depth" value="1800 mm" />
-              <PropRow label="Height" value="1650 mm" />
-            </AccordionSection>
-
-            {/* IoT Configuration */}
-            <AccordionSection title="IoT Configuration" id="iot-config" expanded={expandedSections.has('iot-config')} onToggle={toggleSection}>
-              <BizInputRow label="Protocol" value={displayBiz.protocol} onChange={v => updatePending('protocol', v)} placeholder="e.g. OPC-UA" editing={isEditingBiz} />
-              <BizInputRow label="IP Address" value={displayBiz.ipAddress} onChange={v => updatePending('ipAddress', v)} placeholder="e.g. 192.168.1.100" editing={isEditingBiz} />
-              <BizInputRow label="Port" value={displayBiz.port} onChange={v => updatePending('port', v)} placeholder="e.g. 4840" editing={isEditingBiz} />
-            </AccordionSection>
-
-            {/* Production Data */}
-            <AccordionSection title="Production Data" id="production" expanded={expandedSections.has('production')} onToggle={toggleSection}>
-              <BizInputRow label="Standard CT" value={displayBiz.standardCT} onChange={v => updatePending('standardCT', v)} placeholder="e.g. 45s" editing={isEditingBiz} />
-              <BizInputRow label="Capacity / hr" value={displayBiz.capacityPerHr} onChange={v => updatePending('capacityPerHr', v)} placeholder="e.g. 1200" editing={isEditingBiz} />
-              <BizInputRow label="Availability" value={displayBiz.availability} onChange={v => updatePending('availability', v)} placeholder="e.g. 90%" editing={isEditingBiz} />
-            </AccordionSection>
-
-            {/* Maintenance */}
-            <AccordionSection title="Maintenance" id="maintenance" expanded={expandedSections.has('maintenance')} onToggle={toggleSection}>
-              <BizInputRow label="MTBF" value={displayBiz.mtbf} onChange={v => updatePending('mtbf', v)} placeholder="e.g. 2000 hrs" editing={isEditingBiz} />
-              <BizInputRow label="Last Maintenance" value={displayBiz.lastMaintenance} onChange={v => updatePending('lastMaintenance', v)} placeholder="e.g. 2024-12-01" editing={isEditingBiz} />
-            </AccordionSection>
-          </div>
-        </aside>
-      </div>
-    </div>
-  );
-}
-
-function AccordionSection({
-  title, id, expanded, onToggle, children,
-}: {
-  title: string; id: string; expanded: boolean; onToggle: (id: string) => void; children: React.ReactNode;
-}) {
-  return (
-    <div className="border-b border-[#142235]">
-      <button
-        onClick={() => onToggle(id)}
-        className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-[#0a1c2e] transition-colors"
-      >
-        <span className="text-[11px] font-semibold text-slate-300">{title}</span>
-        <ChevronDown size={12} className={`text-slate-500 transition-transform ${expanded ? '' : '-rotate-90'}`} />
-      </button>
-      {expanded && (
-        <div className="px-3 pb-3 space-y-1.5">{children}</div>
-      )}
-    </div>
-  );
-}
-
-function BizInputRow({ label, value, onChange, placeholder, editing }: {
-  label: string; value: string; onChange: (v: string) => void; placeholder?: string; editing: boolean;
-}) {
-  if (!editing) {
-    return (
-      <div className="flex items-start justify-between gap-2">
-        <span className="text-[10px] text-slate-500 flex-shrink-0">{label}</span>
-        <span className="text-[10px] text-right text-slate-600 italic">{value || 'Not configured'}</span>
-      </div>
-    );
-  }
-  return (
-    <div className="flex items-center gap-2">
-      <span className="text-[10px] text-slate-500 w-24 flex-shrink-0">{label}</span>
-      <input
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        placeholder={placeholder ?? 'Not configured'}
-        className="flex-1 bg-[#071526] border border-[#1e3a55] rounded px-2 py-1 text-[10px] text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500/60 transition-colors min-w-0"
-      />
-    </div>
-  );
-}
-
-function PropRow({ label, value, dim }: { label: string; value: string; dim?: boolean }) {
-  return (
-    <div className="flex items-start justify-between gap-2">
-      <span className="text-[10px] text-slate-500 flex-shrink-0">{label}</span>
-      <span className={`text-[10px] text-right ${dim ? 'text-slate-600 italic' : 'text-slate-300'}`}>{value}</span>
-    </div>
-  );
+function genId(): string {
+  return `cat_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -434,15 +44,104 @@ export function AssetLibraryPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set());
+  const [selectedStatus, setSelectedStatus] = useState<AssetStatus | 'all'>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set(['smt-lines', 'stencil-printers', 'chip-mounters', 'reflow-ovens']));
   const [selectedAsset, setSelectedAsset] = useState<AssetItem | null>(null);
-  const [viewingAsset, setViewingAsset] = useState<AssetItem | null>(null);
+  const [copyingAsset, setCopyingAsset] = useState<AssetItem | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
 
-  const currentCat = assetLibraryCategories.find((c) => c.id === selectedCat);
+  // ── Batch selection state ──────────────────────────────────────────────────
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchConfirm, setBatchConfirm] = useState<{
+    type: 'toggle' | 'delete';
+    enableIds: string[];
+    disableIds: string[];
+    deleteIds: string[];
+    blockedIds: { id: string; reason: string }[];
+  } | null>(null);
+  const [batchResult, setBatchResult] = useState<{
+    type: 'download' | 'toggle' | 'delete';
+    success: number;
+    fail: { id: string; name: string; reason: string }[];
+  } | null>(null);
 
-  const activeFilterCount = selectedTypes.size;
+  // ── Categories state (mutable, persisted) ─────────────────────────────────
+  const [categories, setCategories] = useState<AssetLibraryCategory[]>(() => {
+    try {
+      const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+      return saved ? (JSON.parse(saved) as AssetLibraryCategory[]) : [...assetLibraryCategories];
+    } catch {
+      return [...assetLibraryCategories];
+    }
+  });
+
+  // ── Dialog states ──────────────────────────────────────────────────────
+  const [showCatDialog, setShowCatDialog] = useState(false);
+  const [editCatTarget, setEditCatTarget] = useState<AssetLibraryCategory | null>(null);
+  const [showSubDialog, setShowSubDialog] = useState(false);
+  const [editSubTarget, setEditSubTarget] = useState<{ catId: string; sub?: AssetSubCategory } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{
+    type: 'category' | 'subcategory';
+    id: string;
+    name: string;
+    catId?: string;
+  } | null>(null);
+
+  // Persist to localStorage
+  useEffect(() => {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(categories));
+  }, [categories]);
+
+  // ── CRUD handlers ──────────────────────────────────────────────────────
+  function handleAddCategory(name: string, desc: string) {
+    const newCat: AssetLibraryCategory = {
+      id: genId(), name, count: 0, thumbnail: '', description: desc, subcategories: [],
+    };
+    setCategories(prev => [...prev, newCat]);
+  }
+
+  function handleEditCategory(id: string, name: string, desc: string) {
+    setCategories(prev => prev.map(c => c.id === id ? { ...c, name, description: desc } : c));
+  }
+
+  function handleDeleteCategory(id: string) {
+    const remaining = categories.filter(c => c.id !== id);
+    setCategories(remaining);
+    if (selectedCat === id) {
+      setSelectedCat(remaining.length > 0 ? remaining[0].id : '');
+      setSelectedSubCat(null);
+    }
+  }
+
+  function handleAddSubCategory(catId: string, name: string) {
+    const newSub: AssetSubCategory = {
+      id: genId(), name, count: 0, items: [],
+    };
+    setCategories(prev => prev.map(c => c.id === catId
+      ? { ...c, subcategories: [...c.subcategories, newSub] } : c
+    ));
+  }
+
+  function handleEditSubCategory(catId: string, subId: string, name: string) {
+    setCategories(prev => prev.map(c => c.id === catId
+      ? { ...c, subcategories: c.subcategories.map(s => s.id === subId ? { ...s, name } : s) }
+      : c
+    ));
+  }
+
+  function handleDeleteSubCategory(catId: string, subId: string) {
+    setCategories(prev => prev.map(c => c.id === catId
+      ? { ...c, subcategories: c.subcategories.filter(s => s.id !== subId) }
+      : c
+    ));
+    if (selectedSubCat === subId) setSelectedSubCat(null);
+  }
+
+  const currentCat = categories.find((c) => c.id === selectedCat);
+
+  const activeFilterCount = selectedTypes.size + (selectedStatus !== 'all' ? 1 : 0);
 
   const filteredItems = useMemo(() => {
     if (!currentCat) return [];
@@ -450,6 +149,7 @@ export function AssetLibraryPage() {
       selectedSubCat && s.id !== selectedSubCat ? [] : s.items
     );
     return allItems.filter((item) => {
+      if (selectedStatus !== 'all' && item.status !== selectedStatus) return false;
       if (selectedTypes.size > 0 && !selectedTypes.has(item.type)) return false;
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
@@ -459,7 +159,7 @@ export function AssetLibraryPage() {
         item.model?.toLowerCase().includes(q)
       );
     });
-  }, [currentCat, selectedSubCat, searchQuery, selectedTypes]);
+  }, [currentCat, selectedSubCat, searchQuery, selectedTypes, selectedStatus]);
 
   function toggleType(type: string) {
     setSelectedTypes((prev) => {
@@ -485,12 +185,143 @@ export function AssetLibraryPage() {
 
   function clearAllFilters() {
     setSelectedTypes(new Set());
+    setSelectedStatus('all');
     setSearchQuery('');
   }
 
-  // If viewing an asset, show the full-screen asset editor
-  if (viewingAsset) {
-    return <AssetViewerPage asset={viewingAsset} onBack={() => setViewingAsset(null)} />;
+  // ── Batch selection handlers ────────────────────────────────────────────────
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === filteredItems.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredItems.map(i => i.id)));
+    }
+  }
+
+  function enterSelectMode() {
+    setSelectMode(true);
+    setSelectedAsset(null);
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }
+
+  /** Find all assets across all categories by IDs */
+  function findAssetsByIds(ids: Set<string>): AssetItem[] {
+    const result: AssetItem[] = [];
+    for (const cat of categories) {
+      for (const sub of cat.subcategories) {
+        for (const item of sub.items) {
+          if (ids.has(item.id)) result.push(item);
+        }
+      }
+    }
+    return result;
+  }
+
+  /** Update asset status in state */
+  function updateAssetStatus(id: string, newStatus: AssetStatus) {
+    setCategories(prev => prev.map(cat => ({
+      ...cat,
+      subcategories: cat.subcategories.map(sub => ({
+        ...sub,
+        items: sub.items.map(item =>
+          item.id === id ? { ...item, status: newStatus } : item
+        ),
+      })),
+    })));
+  }
+
+  /** Execute batch enable/disable */
+  function executeBatchToggle(enableIds: string[], disableIds: string[]) {
+    const fail: { id: string; name: string; reason: string }[] = [];
+    for (const id of enableIds) updateAssetStatus(id, 'active');
+    for (const id of disableIds) updateAssetStatus(id, 'inactive');
+    setBatchResult({
+      type: 'toggle',
+      success: enableIds.length + disableIds.length,
+      fail: [],
+    });
+    setSelectedIds(new Set());
+    setBatchConfirm(null);
+  }
+
+  /** Validate and prepare batch delete — 必须遵循状态-操作映射 */
+  function prepareBatchDelete() {
+    const assets = findAssetsByIds(selectedIds);
+    const deleteIds: string[] = [];
+    const blockedIds: { id: string; reason: string }[] = [];
+    for (const a of assets) {
+      // 草稿: 可删除
+      if (a.status === 'draft') {
+        deleteIds.push(a.id);
+        continue;
+      }
+      // 禁用: 被项目引用的不可删除
+      if (a.status === 'inactive') {
+        if (a.referencedByProjects && a.referencedByProjects > 0) {
+          blockedIds.push({ id: a.id, reason: `被 ${a.referencedByProjects} 个项目引用，不可删除` });
+        } else {
+          deleteIds.push(a.id);
+        }
+        continue;
+      }
+      // 激活: 必须先禁用
+      if (a.status === 'active') {
+        blockedIds.push({ id: a.id, reason: '激活状态的资产必须先禁用才能删除' });
+        continue;
+      }
+      // 归档: 只有管理员可操作
+      if (a.status === 'archived') {
+        blockedIds.push({ id: a.id, reason: '归档资产只有管理员可操作' });
+        continue;
+      }
+    }
+    setBatchConfirm({
+      type: 'delete',
+      enableIds: [],
+      disableIds: [],
+      deleteIds,
+      blockedIds,
+    });
+  }
+
+  /** Execute batch delete */
+  function executeBatchDelete(ids: string[]) {
+    // Remove assets from all categories
+    setCategories(prev => prev.map(cat => ({
+      ...cat,
+      count: cat.count - cat.subcategories.reduce((sum, sub) =>
+        sum + sub.items.filter(i => ids.includes(i.id)).length, 0
+      ),
+      subcategories: cat.subcategories.map(sub => ({
+        ...sub,
+        count: sub.count - sub.items.filter(i => ids.includes(i.id)).length,
+        items: sub.items.filter(i => !ids.includes(i.id)),
+      })),
+    })));
+    setSelectedIds(new Set());
+    setBatchConfirm(null);
+  }
+
+  /** Batch download */
+  function handleBatchDownload() {
+    const names = findAssetsByIds(selectedIds).map(a => a.name);
+    setBatchResult({
+      type: 'download',
+      success: names.length,
+      fail: [],
+    });
   }
 
   return (
@@ -638,6 +469,33 @@ export function AssetLibraryPage() {
                   </div>
                 </div>
 
+                {/* 状态 */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider">状态</span>
+                    {selectedStatus !== 'all' && (
+                      <button onClick={() => setSelectedStatus('all')} className="text-[9px] text-blue-400 hover:text-blue-300 transition-colors">
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {(['all', 'active', 'draft', 'inactive', 'archived'] as const).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => setSelectedStatus(s)}
+                        className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+                          selectedStatus === s
+                            ? 'bg-blue-600/25 text-blue-300 border-blue-500/60'
+                            : 'text-slate-500 border-[#1e3a55] hover:text-slate-300 hover:border-[#2a4a6a]'
+                        }`}
+                      >
+                        {s === 'all' ? 'All' : ASSET_STATUS_CONFIG[s].label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Clear all */}
                 {(activeFilterCount > 0 || searchQuery) && (
                   <button
@@ -653,42 +511,100 @@ export function AssetLibraryPage() {
 
           {/* Category Tree */}
           <div className="flex-1 overflow-y-auto">
-            {assetLibraryCategories.map((cat) => (
+            {/* ── Tree header with Add button ── */}
+            <div className="flex items-center justify-between px-3 py-2 border-b border-[#142235] sticky top-0 bg-[#07111e] z-10">
+              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Categories</span>
+              <button
+                onClick={() => { setEditCatTarget(null); setShowCatDialog(true); }}
+                className="text-slate-500 hover:text-blue-400 p-0.5 rounded transition-colors"
+                title="Add Category"
+              >
+                <Plus size={13} />
+              </button>
+            </div>
+            {categories.map((cat) => (
               <div key={cat.id}>
-                <button
-                  onClick={() => { setSelectedCat(cat.id); setSelectedSubCat(null); setSelectedTypes(new Set()); }}
-                  className={`w-full flex items-center gap-2 px-3 py-2.5 text-left text-[11px] transition-colors ${
-                    selectedCat === cat.id
-                      ? 'bg-blue-600/15 text-blue-300 border-l-2 border-blue-500'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-[#0e243a] border-l-2 border-transparent'
-                  }`}
-                >
-                  <Package size={12} className={selectedCat === cat.id ? 'text-blue-400' : 'text-slate-600'} />
-                  <span className="flex-1 font-medium">{cat.name}</span>
-                  <span className="text-[10px] text-slate-600 bg-[#071526] px-1.5 py-0.5 rounded">{cat.count}</span>
-                </button>
+                {/* ── Category row ── */}
+                <div className="group relative">
+                  <button
+                    onClick={() => { setSelectedCat(cat.id); setSelectedSubCat(null); setSelectedTypes(new Set()); }}
+                    className={`w-full flex items-center gap-2 px-3 py-2.5 text-left text-[11px] transition-colors ${
+                      selectedCat === cat.id
+                        ? 'bg-blue-600/15 text-blue-300 border-l-2 border-blue-500'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-[#0e243a] border-l-2 border-transparent'
+                    }`}
+                  >
+                    <Package size={12} className={selectedCat === cat.id ? 'text-blue-400' : 'text-slate-600'} />
+                    <span className="flex-1 font-medium truncate">{cat.name}</span>
+                    <span className="text-[10px] text-slate-600 bg-[#071526] px-1.5 py-0.5 rounded">{cat.count}</span>
+                  </button>
+                  {/* Hover actions */}
+                  <div className="hidden group-hover:flex absolute right-2 top-1/2 -translate-y-1/2 items-center gap-0.5 bg-[#07111e]/90 pl-1">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setEditCatTarget(cat); setShowCatDialog(true); }}
+                      className="text-slate-500 hover:text-blue-400 p-0.5 rounded transition-colors"
+                      title="Edit Category"
+                    >
+                      <Edit2 size={10} />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setEditSubTarget({ catId: cat.id }); setShowSubDialog(true); }}
+                      className="text-slate-500 hover:text-green-400 p-0.5 rounded transition-colors"
+                      title="Add Subcategory"
+                    >
+                      <Plus size={10} />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setConfirmDelete({ type: 'category', id: cat.id, name: cat.name }); }}
+                      className="text-slate-500 hover:text-red-400 p-0.5 rounded transition-colors"
+                      title="Delete Category"
+                    >
+                      <Trash2 size={10} />
+                    </button>
+                  </div>
+                </div>
 
                 {selectedCat === cat.id &&
                   cat.subcategories.map((sub) => (
                     <div key={sub.id}>
-                      <button
-                        onClick={() => {
-                          toggleSub(sub.id);
-                          setSelectedSubCat(selectedSubCat === sub.id ? null : sub.id);
-                        }}
-                        className={`w-full flex items-center gap-2 pl-7 pr-3 py-2 text-left text-[11px] transition-colors ${
-                          selectedSubCat === sub.id
-                            ? 'text-slate-200 bg-[#0e243a]'
-                            : 'text-slate-500 hover:text-slate-300 hover:bg-[#0d1e2e]'
-                        }`}
-                      >
-                        <ChevronDown
-                          size={10}
-                          className={`transition-transform flex-shrink-0 ${expandedSubs.has(sub.id) ? '' : '-rotate-90'}`}
-                        />
-                        <span className="flex-1">{sub.name}</span>
-                        <span className="text-[10px] text-slate-600">{sub.count}</span>
-                      </button>
+                      {/* ── Subcategory row ── */}
+                      <div className="group relative">
+                        <button
+                          onClick={() => {
+                            toggleSub(sub.id);
+                            setSelectedSubCat(selectedSubCat === sub.id ? null : sub.id);
+                          }}
+                          className={`w-full flex items-center gap-2 pl-7 pr-3 py-2 text-left text-[11px] transition-colors ${
+                            selectedSubCat === sub.id
+                              ? 'text-slate-200 bg-[#0e243a]'
+                              : 'text-slate-500 hover:text-slate-300 hover:bg-[#0d1e2e]'
+                          }`}
+                        >
+                          <ChevronDown
+                            size={10}
+                            className={`transition-transform flex-shrink-0 ${expandedSubs.has(sub.id) ? '' : '-rotate-90'}`}
+                          />
+                          <span className="flex-1 truncate">{sub.name}</span>
+                          <span className="text-[10px] text-slate-600">{sub.count}</span>
+                        </button>
+                        {/* Hover actions */}
+                        <div className="hidden group-hover:flex absolute right-2 top-1/2 -translate-y-1/2 items-center gap-0.5 bg-[#07111e]/90 pl-1">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setEditSubTarget({ catId: cat.id, sub }); setShowSubDialog(true); }}
+                            className="text-slate-500 hover:text-blue-400 p-0.5 rounded transition-colors"
+                            title="Edit Subcategory"
+                          >
+                            <Edit2 size={10} />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setConfirmDelete({ type: 'subcategory', id: sub.id, name: sub.name, catId: cat.id }); }}
+                            className="text-slate-500 hover:text-red-400 p-0.5 rounded transition-colors"
+                            title="Delete Subcategory"
+                          >
+                            <Trash2 size={10} />
+                          </button>
+                        </div>
+                      </div>
 
                       {expandedSubs.has(sub.id) &&
                         sub.items.map((item) => (
@@ -710,6 +626,7 @@ export function AssetLibraryPage() {
               </div>
             ))}
           </div>
+
         </aside>
 
         {/* Main Content */}
@@ -725,6 +642,14 @@ export function AssetLibraryPage() {
               </span>
             </span>
             <div className="ml-auto flex items-center gap-2">
+              {!selectMode && (
+                <button
+                  onClick={enterSelectMode}
+                  className="flex items-center gap-1.5 text-xs border border-[#1e3a55] text-slate-400 hover:text-slate-200 hover:border-[#2a4a6a] px-2.5 py-1.5 rounded-md transition-colors"
+                >
+                  <CheckSquare size={13} /> Batch Select
+                </button>
+              )}
               <div className="flex border border-[#1e3a55] rounded overflow-hidden">
                 <button
                   onClick={() => setViewMode('grid')}
@@ -742,6 +667,72 @@ export function AssetLibraryPage() {
             </div>
           </div>
 
+          {/* Batch Toolbar (shown when in select mode) */}
+          {selectMode && (
+            <div className="h-10 bg-blue-600/10 border-b border-blue-500/30 flex items-center px-4 gap-3 flex-shrink-0">
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selectMode && selectedIds.size === filteredItems.length && filteredItems.length > 0}
+                  onChange={toggleSelectAll}
+                  className="w-3 h-3 rounded border-slate-500 bg-transparent accent-blue-500"
+                />
+                <span className="text-[11px] text-blue-300 font-medium">{selectedIds.size} selected</span>
+              </label>
+              <div className="w-px h-4 bg-blue-500/30" />
+              <button
+                onClick={handleBatchDownload}
+                disabled={selectedIds.size === 0}
+                className="text-[11px] text-slate-300 hover:text-white bg-blue-600/20 hover:bg-blue-600/40 disabled:opacity-30 disabled:cursor-not-allowed px-2.5 py-1 rounded transition-colors"
+              >
+                <Download size={11} className="inline mr-1" />Batch Download
+              </button>
+              <button
+                onClick={() => {
+                  const assets = findAssetsByIds(selectedIds);
+                  const enableIds = assets.filter(a => a.status === 'inactive' || a.status === 'draft').map(a => a.id);
+                  if (enableIds.length === 0) return;
+                  setBatchConfirm({ type: 'toggle', enableIds, disableIds: [], deleteIds: [], blockedIds: [] });
+                }}
+                disabled={!findAssetsByIds(selectedIds).some(a => a.status === 'inactive' || a.status === 'draft')}
+                className="text-[11px] text-slate-300 hover:text-white bg-blue-600/20 hover:bg-blue-600/40 disabled:opacity-30 disabled:cursor-not-allowed px-2.5 py-1 rounded transition-colors"
+              >
+                <Check size={11} className="inline mr-1" />批量启用
+              </button>
+              <button
+                onClick={() => {
+                  const assets = findAssetsByIds(selectedIds);
+                  const disableIds = assets.filter(a => a.status === 'active').map(a => a.id);
+                  if (disableIds.length === 0) return;
+                  setBatchConfirm({ type: 'toggle', enableIds: [], disableIds, deleteIds: [], blockedIds: [] });
+                }}
+                disabled={!findAssetsByIds(selectedIds).some(a => a.status === 'active')}
+                className="text-[11px] text-slate-300 hover:text-white bg-amber-600/20 hover:bg-amber-600/40 disabled:opacity-30 disabled:cursor-not-allowed px-2.5 py-1 rounded transition-colors"
+              >
+                <SlidersHorizontal size={11} className="inline mr-1" />批量禁用
+              </button>
+              <button
+                onClick={prepareBatchDelete}
+                disabled={selectedIds.size === 0}
+                className="text-[11px] text-red-300 hover:text-white bg-red-600/20 hover:bg-red-600/40 disabled:opacity-30 disabled:cursor-not-allowed px-2.5 py-1 rounded transition-colors"
+              >
+                <Trash2 size={11} className="inline mr-1" />Batch Delete
+              </button>
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="text-[11px] text-slate-500 hover:text-slate-300 transition-colors"
+              >
+                <X size={11} className="inline mr-1" />Clear
+              </button>
+              <button
+                onClick={exitSelectMode}
+                className="text-[11px] text-slate-300 hover:text-white bg-slate-600/30 hover:bg-slate-600/50 px-2.5 py-1 rounded transition-colors ml-auto"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
           {/* Asset Grid / List */}
           <div className="flex-1 overflow-y-auto p-5">
             {filteredItems.length === 0 ? (
@@ -756,9 +747,12 @@ export function AssetLibraryPage() {
                     key={item.id}
                     item={item}
                     selected={selectedAsset?.id === item.id}
+                    selectMode={selectMode}
+                    isChecked={selectedIds.has(item.id)}
+                    onToggleSelect={() => toggleSelect(item.id)}
                     onClick={() => setSelectedAsset(item)}
-                    onEdit={() => { setSelectedAsset(item); setShowEditModal(true); }}
-                    onView={() => setViewingAsset(item)}
+                    onView={() => navigate(`/asset-library/${item.id}/editor`)}
+                    onCopy={() => setCopyingAsset(item)}
                   />
                 ))}
                 <div className="bg-[#0b1d30] border border-dashed border-[#1e3a55] rounded-lg flex flex-col items-center justify-center h-44 cursor-pointer hover:border-blue-500/60 hover:bg-[#0e243a] transition-all group">
@@ -773,9 +767,13 @@ export function AssetLibraryPage() {
                     key={item.id}
                     item={item}
                     selected={selectedAsset?.id === item.id}
+                    selectMode={selectMode}
+                    isChecked={selectedIds.has(item.id)}
+                    onToggleSelect={() => toggleSelect(item.id)}
                     onClick={() => setSelectedAsset(item)}
                     onEdit={() => { setSelectedAsset(item); setShowEditModal(true); }}
-                    onView={() => setViewingAsset(item)}
+                    onView={() => navigate(`/asset-library/${item.id}/editor`)}
+                    onCopy={() => setCopyingAsset(item)}
                   />
                 ))}
               </div>
@@ -803,13 +801,13 @@ export function AssetLibraryPage() {
                 className="w-full h-full object-cover opacity-80"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-[#071526] to-transparent" />
-              {/* Quick view button overlay */}
+              {/* Quick open editor overlay */}
               <button
-                onClick={() => setViewingAsset(selectedAsset)}
+                onClick={() => navigate(`/asset-library/${selectedAsset.id}/editor`)}
                 className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/40"
               >
                 <div className="flex items-center gap-1.5 text-white text-xs bg-blue-600/80 px-3 py-1.5 rounded-md">
-                  <Eye size={12} /> Open in Viewer
+                  <ExternalLink size={12} /> Open Editor
                 </div>
               </button>
             </div>
@@ -823,6 +821,7 @@ export function AssetLibraryPage() {
               <DetailSection title="Basic Information">
                 <DetailRow label="Category" value={selectedAsset.category.toUpperCase()} />
                 <DetailRow label="Type" value={selectedAsset.type} />
+                <DetailRow label="Status" value={ASSET_STATUS_CONFIG[selectedAsset.status]?.label ?? '—'} />
                 {selectedAsset.manufacturer && <DetailRow label="Manufacturer" value={selectedAsset.manufacturer} />}
                 {selectedAsset.model && <DetailRow label="Model" value={selectedAsset.model} />}
               </DetailSection>
@@ -842,16 +841,16 @@ export function AssetLibraryPage() {
 
             <div className="p-4 border-t border-[#142235] space-y-2">
               <button
-                onClick={() => setViewingAsset(selectedAsset)}
-                className="w-full text-xs bg-[#0b1d30] hover:bg-[#0e243a] border border-[#1e3a55] hover:border-blue-500/50 text-slate-200 px-3 py-2 rounded-md transition-colors flex items-center justify-center gap-1.5"
+                onClick={() => navigate(`/asset-library/${selectedAsset.id}/editor`)}
+                className="w-full text-xs bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 hover:border-blue-500/60 text-blue-300 px-3 py-2 rounded-md transition-colors flex items-center justify-center gap-1.5"
               >
-                <Eye size={11} /> Open in Viewer
+                <ExternalLink size={11} /> Open Editor
               </button>
               <button
-                onClick={() => setShowEditModal(true)}
-                className="w-full text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-md transition-colors flex items-center justify-center gap-1.5"
+                onClick={() => setCopyingAsset(selectedAsset)}
+                className="w-full text-xs bg-[#0b1d30] hover:bg-[#0e243a] border border-[#1e3a55] hover:border-emerald-500/50 text-slate-400 hover:text-emerald-300 px-3 py-2 rounded-md transition-colors flex items-center justify-center gap-1.5"
               >
-                <Edit2 size={11} /> Edit Business Data
+                <Copy size={11} /> Copy Asset
               </button>
             </div>
           </aside>
@@ -861,23 +860,211 @@ export function AssetLibraryPage() {
       {showEditModal && selectedAsset && (
         <AssetEditModal asset={selectedAsset} onClose={() => setShowEditModal(false)} />
       )}
+
+      {copyingAsset && (
+        <CopyAssetModal asset={copyingAsset} onClose={() => setCopyingAsset(null)} />
+      )}
+
+      {/* ── CRUD Dialogs ── */}
+      {showCatDialog && (
+        <CategoryDialog
+          target={editCatTarget}
+          onSave={(name, desc) => {
+            if (editCatTarget) {
+              handleEditCategory(editCatTarget.id, name, desc);
+            } else {
+              handleAddCategory(name, desc);
+            }
+            setShowCatDialog(false);
+            setEditCatTarget(null);
+          }}
+          onCancel={() => { setShowCatDialog(false); setEditCatTarget(null); }}
+        />
+      )}
+      {showSubDialog && editSubTarget && (
+        <SubCategoryDialog
+          catId={editSubTarget.catId}
+          target={editSubTarget.sub}
+          onSave={(catId, name) => {
+            if (editSubTarget.sub) {
+              handleEditSubCategory(catId, editSubTarget.sub.id, name);
+            } else {
+              handleAddSubCategory(catId, name);
+            }
+            setShowSubDialog(false);
+            setEditSubTarget(null);
+          }}
+          onCancel={() => { setShowSubDialog(false); setEditSubTarget(null); }}
+        />
+      )}
+      {confirmDelete && (
+        <ConfirmDialog
+          title={`Delete ${confirmDelete.type === 'category' ? 'Category' : 'Subcategory'}`}
+          message={
+            confirmDelete.type === 'category'
+              ? `Are you sure you want to delete "${confirmDelete.name}"? This will also remove all subcategories and assets within it.`
+              : `Are you sure you want to delete "${confirmDelete.name}"? This will also remove all assets within it.`
+          }
+          onConfirm={() => {
+            if (confirmDelete.type === 'category') {
+              handleDeleteCategory(confirmDelete.id);
+            } else if (confirmDelete.catId) {
+              handleDeleteSubCategory(confirmDelete.catId, confirmDelete.id);
+            }
+            setConfirmDelete(null);
+          }}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
+
+      {/* ── Batch Operation Dialogs ── */}
+      {batchConfirm?.type === 'toggle' && (
+        <ConfirmDialog
+          title="批量启用/禁用"
+          message={
+            batchConfirm.enableIds.length > 0 && batchConfirm.disableIds.length > 0
+              ? `将启用 ${batchConfirm.enableIds.length} 个资产，禁用 ${batchConfirm.disableIds.length} 个资产。确定要继续吗？`
+              : batchConfirm.enableIds.length > 0
+                ? `将启用 ${batchConfirm.enableIds.length} 个资产（草稿/禁用 → 激活）。确定要继续吗？`
+                : `将禁用 ${batchConfirm.disableIds.length} 个资产（激活 → 禁用）。确定要继续吗？`
+          }
+          confirmLabel="Confirm"
+          confirmCls="bg-blue-600 hover:bg-blue-700"
+          onConfirm={() => executeBatchToggle(batchConfirm.enableIds, batchConfirm.disableIds)}
+          onCancel={() => setBatchConfirm(null)}
+        />
+      )}
+      {batchConfirm?.type === 'delete' && (
+        <BatchDeleteDialog
+          deleteIds={batchConfirm.deleteIds}
+          blockedIds={batchConfirm.blockedIds}
+          onConfirm={() => executeBatchDelete(batchConfirm.deleteIds)}
+          onCancel={() => setBatchConfirm(null)}
+        />
+      )}
+      {batchResult && (
+        <BatchResultDialog
+          result={batchResult}
+          onClose={() => setBatchResult(null)}
+        />
+      )}
     </div>
   );
 }
 
 // ── Sub-components ──────────────────────────────────────────────────────────
 
+function CopyAssetModal({ asset, onClose }: { asset: AssetItem; onClose: () => void }) {
+  const latestVersion = asset.versions?.[asset.versions.length - 1];
+  const [sourceVersionId, setSourceVersionId] = useState(latestVersion?.id ?? '');
+  const [newName, setNewName] = useState(`${asset.name}_copy`);
+
+  function handleConfirm() {
+    // In a real app this would create the new asset via API
+    alert(`已创建新资产：${newName}（从 ${asset.name} ${latestVersion?.versionLabel ?? 'V1.0'} 复制）`);
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-[#0b1d30] border border-[#1e3a55] rounded-xl w-[440px] shadow-2xl flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#142235]">
+          <div className="flex items-center gap-2">
+            <Copy size={14} className="text-emerald-400" />
+            <span className="text-sm font-semibold text-slate-100">Copy Asset</span>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-200 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <p className="text-[11px] text-slate-400">
+            Creates a fully independent new asset with its own version history starting at <span className="text-blue-300 font-medium">V1.0</span>.
+          </p>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Source Version</label>
+            {asset.versions && asset.versions.length > 0 ? (
+              <select
+                value={sourceVersionId}
+                onChange={e => setSourceVersionId(e.target.value)}
+                className="w-full bg-[#071526] border border-[#1e3a55] rounded-md px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-blue-500 transition-colors"
+              >
+                {asset.versions.map(v => (
+                  <option key={v.id} value={v.id}>
+                    {v.versionLabel} — {v.status} {v.referencedByProjects ? `(${v.referencedByProjects} projects)` : ''}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="text-[11px] text-slate-500 bg-[#071526] border border-[#1e3a55] rounded-md px-3 py-2">
+                V1.0 (current)
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">New Asset Name</label>
+            <input
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              className="w-full bg-[#071526] border border-[#1e3a55] rounded-md px-3 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors"
+              placeholder="Enter new asset name"
+            />
+          </div>
+
+          <div className="bg-[#071526] border border-[#1e3a55] rounded-md p-3">
+            <div className="text-[10px] text-slate-500 space-y-1">
+              <div className="flex justify-between">
+                <span>Copied from</span>
+                <span className="text-slate-300">{asset.name} {asset.versions?.find(v => v.id === sourceVersionId)?.versionLabel ?? 'V1.0'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>New version</span>
+                <span className="text-blue-300 font-medium">V1.0</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Initial status</span>
+                <span className="text-amber-400">Draft</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-[#142235]">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-xs text-slate-400 border border-[#1e3a55] rounded-md hover:border-[#2a4a6a] transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={!newName.trim()}
+            className="px-4 py-2 text-xs bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-md transition-colors flex items-center gap-1.5"
+          >
+            <Copy size={11} /> Confirm Copy
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AssetCard({
-  item, selected, onClick, onEdit, onView,
+  item, selected, selectMode, isChecked, onToggleSelect, onClick, onView, onCopy,
 }: {
-  item: AssetItem; selected: boolean; onClick: () => void; onEdit: () => void; onView: () => void;
+  item: AssetItem; selected: boolean; selectMode?: boolean; isChecked?: boolean; onToggleSelect?: () => void; onClick: () => void; onView: () => void; onCopy: () => void;
 }) {
+  const st = ASSET_STATUS_CONFIG[item.status] ?? ASSET_STATUS_CONFIG.active;
+  const versionCount = item.versions?.length ?? 0;
   return (
     <div
       onClick={onClick}
       className={`bg-[#0b1d30] border rounded-lg overflow-hidden cursor-pointer transition-all group ${
         selected ? 'border-blue-500 ring-1 ring-blue-500/30' : 'border-[#142235] hover:border-blue-500/40'
-      }`}
+      } ${selectMode && isChecked ? 'ring-1 ring-blue-500/30' : ''}`}
     >
       <div className="h-32 relative overflow-hidden bg-[#071526]">
         <img
@@ -886,23 +1073,50 @@ function AssetCard({
           className="w-full h-full object-cover opacity-65 group-hover:opacity-85 transition-opacity duration-300"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#0b1d30]/60 to-transparent" />
-        <div className="absolute top-2 left-2 bg-[#071526]/80 rounded px-1.5 py-0.5 text-[9px] text-slate-400">
+        {/* Select mode checkbox */}
+        {selectMode && (
+          <div className="absolute top-2 left-2 z-10" onClick={e => e.stopPropagation()}>
+            <input
+              type="checkbox"
+              checked={!!isChecked}
+              onChange={onToggleSelect}
+              className="w-3.5 h-3.5 rounded border-slate-500 bg-[#071526]/80 accent-blue-500 cursor-pointer"
+            />
+          </div>
+        )}
+        {/* Version count badge (top-left, hidden in select mode) */}
+        {!selectMode && versionCount > 0 && (
+          <div className="absolute top-2 left-2">
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-600/80 text-blue-100 font-medium">
+              {versionCount}V
+            </span>
+          </div>
+        )}
+        {/* Status badge (top-right, always visible) */}
+        <div className="absolute top-2 right-2">
+          <span className={`text-[9px] px-1.5 py-0.5 rounded border ${st.cls}`}>
+            {st.label}
+          </span>
+        </div>
+        {/* Type badge */}
+        <div className="absolute bottom-2 left-2 bg-[#071526]/80 rounded px-1.5 py-0.5 text-[9px] text-slate-400">
           {item.type}
         </div>
-        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+        {/* Hover actions */}
+        <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
           <button
-            onClick={(e) => { e.stopPropagation(); onEdit(); }}
-            className="bg-blue-600/80 hover:bg-blue-600 rounded p-1 transition-colors"
-            title="Edit Business Data"
+            onClick={(e) => { e.stopPropagation(); onCopy(); }}
+            className="bg-[#071526]/80 hover:bg-emerald-600/80 rounded p-1 transition-colors"
+            title="Copy Asset"
           >
-            <Edit2 size={10} className="text-white" />
+            <Copy size={10} className="text-slate-300" />
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); onView(); }}
-            className="bg-[#071526]/80 hover:bg-blue-600/80 rounded p-1 transition-colors"
-            title="Open in Viewer"
+            className="bg-blue-600/80 hover:bg-blue-600 rounded p-1 transition-colors"
+            title="Open Editor"
           >
-            <Eye size={10} className="text-slate-300 group-hover:text-white" />
+            <ExternalLink size={10} className="text-white" />
           </button>
         </div>
       </div>
@@ -917,10 +1131,12 @@ function AssetCard({
 }
 
 function AssetListRow({
-  item, selected, onClick, onEdit, onView,
+  item, selected, selectMode, isChecked, onToggleSelect, onClick, onEdit, onView, onCopy,
 }: {
-  item: AssetItem; selected: boolean; onClick: () => void; onEdit: () => void; onView: () => void;
+  item: AssetItem; selected: boolean; selectMode?: boolean; isChecked?: boolean; onToggleSelect?: () => void; onClick: () => void; onEdit: () => void; onView: () => void; onCopy: () => void;
 }) {
+  const st = ASSET_STATUS_CONFIG[item.status] ?? ASSET_STATUS_CONFIG.active;
+  const versionCount = item.versions?.length ?? 0;
   return (
     <div
       onClick={onClick}
@@ -928,21 +1144,52 @@ function AssetListRow({
         selected ? 'bg-blue-600/10 border border-blue-500/30' : 'bg-[#0b1d30] border border-[#142235] hover:border-blue-500/30'
       }`}
     >
+      {/* Checkbox (only in select mode) */}
+      {selectMode && (
+        <div onClick={e => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={!!isChecked}
+            onChange={onToggleSelect}
+            className="w-3.5 h-3.5 rounded border-slate-500 bg-transparent accent-blue-500 cursor-pointer flex-shrink-0"
+          />
+        </div>
+      )}
       <div className="w-10 h-10 rounded overflow-hidden flex-shrink-0 bg-[#071526]">
         <img src={item.thumbnail} alt={item.name} className="w-full h-full object-cover opacity-70" />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-[11px] font-medium text-slate-200 truncate">{item.name}</div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] font-medium text-slate-200 truncate">{item.name}</span>
+          {versionCount > 0 && (
+            <span className="text-[9px] px-1 py-0.5 rounded bg-blue-600/30 text-blue-300 font-medium flex-shrink-0">
+              {versionCount}V
+            </span>
+          )}
+        </div>
         <div className="text-[10px] text-slate-500">{item.manufacturer} {item.model}</div>
+      </div>
+      {/* Status column */}
+      <div className="w-16 flex-shrink-0">
+        <span className={`text-[10px] px-1.5 py-0.5 rounded border ${st.cls} inline-block`}>
+          {st.label}
+        </span>
       </div>
       <div className="text-[10px] text-slate-500 bg-[#071526] px-2 py-0.5 rounded">{item.type}</div>
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
+          onClick={(e) => { e.stopPropagation(); onCopy(); }}
+          className="text-slate-400 hover:text-emerald-400 transition-colors p-1"
+          title="Copy Asset"
+        >
+          <Copy size={12} />
+        </button>
+        <button
           onClick={(e) => { e.stopPropagation(); onView(); }}
           className="text-slate-400 hover:text-blue-400 transition-colors p-1"
-          title="Open in Viewer"
+          title="Open Editor"
         >
-          <Eye size={12} />
+          <ExternalLink size={12} />
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onEdit(); }}
@@ -1059,6 +1306,290 @@ function ModalField({ label, value, onChange, placeholder }: {
         placeholder={placeholder}
         className="w-full bg-[#071526] border border-[#1e3a55] rounded-md px-3 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors"
       />
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Dialog Components for Category/Subcategory CRUD
+// ══════════════════════════════════════════════════════════════════════════════
+
+function ConfirmDialog({
+  title, message, onConfirm, onCancel, confirmLabel, confirmCls,
+}: {
+  title: string; message: string; onConfirm: () => void; onCancel: () => void; confirmLabel?: string; confirmCls?: string;
+}) {
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-[#0b1d30] border border-[#1e3a55] rounded-xl w-[380px] shadow-2xl">
+        <div className="px-5 py-4 border-b border-[#142235]">
+          <span className="text-sm font-semibold text-slate-100">{title}</span>
+        </div>
+        <div className="px-5 py-4">
+          <p className="text-xs text-slate-400 leading-relaxed">{message}</p>
+        </div>
+        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-[#142235]">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 text-xs text-slate-400 border border-[#1e3a55] rounded-md hover:border-[#2a4a6a] transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className={`px-5 py-2 text-xs text-white rounded-md font-medium transition-colors ${confirmCls ?? 'bg-red-600 hover:bg-red-700'}`}
+          >
+            {confirmLabel ?? 'Delete'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CategoryDialog({
+  target, onSave, onCancel,
+}: {
+  target: AssetLibraryCategory | null;
+  onSave: (name: string, desc: string) => void;
+  onCancel: () => void;
+}) {
+  const isEdit = target !== null;
+  const [name, setName] = useState(target?.name ?? '');
+  const [desc, setDesc] = useState(target?.description ?? '');
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    onSave(name.trim(), desc.trim());
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-[#0b1d30] border border-[#1e3a55] rounded-xl w-[400px] shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#142235]">
+          <span className="text-sm font-semibold text-slate-100">
+            {isEdit ? 'Edit Category' : 'Add Category'}
+          </span>
+          <button onClick={onCancel} className="text-slate-500 hover:text-slate-200 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="px-5 py-4 space-y-4">
+            <div>
+              <label className="block text-[11px] text-slate-400 mb-1.5">Name</label>
+              <input
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="e.g. SMT Asset Library"
+                className="w-full bg-[#071526] border border-[#1e3a55] rounded-md px-3 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] text-slate-400 mb-1.5">Description</label>
+              <textarea
+                value={desc}
+                onChange={e => setDesc(e.target.value)}
+                placeholder="Category description..."
+                rows={3}
+                className="w-full bg-[#071526] border border-[#1e3a55] rounded-md px-3 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors resize-none"
+              />
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-[#142235]">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="px-4 py-2 text-xs text-slate-400 border border-[#1e3a55] rounded-md hover:border-[#2a4a6a] transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!name.trim()}
+              className="px-5 py-2 text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/40 disabled:text-slate-400 text-white rounded-md font-medium transition-colors"
+            >
+              {isEdit ? 'Save Changes' : 'Add Category'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function SubCategoryDialog({
+  catId, target, onSave, onCancel,
+}: {
+  catId: string;
+  target: AssetSubCategory | undefined;
+  onSave: (catId: string, name: string) => void;
+  onCancel: () => void;
+}) {
+  const isEdit = target !== undefined;
+  const [name, setName] = useState(target?.name ?? '');
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    onSave(catId, name.trim());
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-[#0b1d30] border border-[#1e3a55] rounded-xl w-[400px] shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#142235]">
+          <span className="text-sm font-semibold text-slate-100">
+            {isEdit ? 'Edit Subcategory' : 'Add Subcategory'}
+          </span>
+          <button onClick={onCancel} className="text-slate-500 hover:text-slate-200 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="px-5 py-4">
+            <label className="block text-[11px] text-slate-400 mb-1.5">Name</label>
+            <input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="e.g. SMT Lines"
+              className="w-full bg-[#071526] border border-[#1e3a55] rounded-md px-3 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors"
+              autoFocus
+            />
+          </div>
+          <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-[#142235]">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="px-4 py-2 text-xs text-slate-400 border border-[#1e3a55] rounded-md hover:border-[#2a4a6a] transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!name.trim()}
+              className="px-5 py-2 text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/40 disabled:text-slate-400 text-white rounded-md font-medium transition-colors"
+            >
+              {isEdit ? 'Save Changes' : 'Add Subcategory'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Batch Operation Dialogs
+// ══════════════════════════════════════════════════════════════════════════════
+
+function BatchDeleteDialog({
+  deleteIds, blockedIds, onConfirm, onCancel,
+}: {
+  deleteIds: string[];
+  blockedIds: { id: string; reason: string }[];
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-[#0b1d30] border border-[#1e3a55] rounded-xl w-[440px] shadow-2xl">
+        <div className="px-5 py-4 border-b border-[#142235]">
+          <span className="text-sm font-semibold text-slate-100">批量删除</span>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          {deleteIds.length > 0 ? (
+            <div>
+              <div className="flex items-center gap-1.5 text-xs text-emerald-400 mb-2">
+                <Check size={13} />
+                <span>{deleteIds.length} 个资产可删除</span>
+              </div>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                确定要删除这 {deleteIds.length} 个资产吗？此操作不可撤销。
+              </p>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 text-xs text-amber-400">
+              <Info size={13} />
+              <span>没有符合条件的资产可删除</span>
+            </div>
+          )}
+          {blockedIds.length > 0 && (
+            <div className="bg-red-600/10 border border-red-500/30 rounded-md p-3 space-y-1.5">
+              <div className="text-[11px] font-medium text-red-400">以下资产无法删除：</div>
+              {blockedIds.map(b => (
+                <div key={b.id} className="text-[10px] text-slate-400 flex items-start gap-1.5">
+                  <X size={10} className="text-red-400 mt-0.5 flex-shrink-0" />
+                  <span>{b.reason}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-[#142235]">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 text-xs text-slate-400 border border-[#1e3a55] rounded-md hover:border-[#2a4a6a] transition-colors"
+          >
+            Cancel
+          </button>
+          {deleteIds.length > 0 && (
+            <button
+              onClick={onConfirm}
+              className="px-5 py-2 text-xs bg-red-600 hover:bg-red-700 text-white rounded-md font-medium transition-colors"
+            >
+              删除 {deleteIds.length} 个资产
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BatchResultDialog({
+  result, onClose,
+}: {
+  result: { type: 'download' | 'toggle' | 'delete'; success: number; fail: { id: string; name: string; reason: string }[] };
+  onClose: () => void;
+}) {
+  const title = result.type === 'download' ? '批量下载'
+    : result.type === 'toggle' ? '批量启用/禁用'
+    : '批量删除';
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-[#0b1d30] border border-[#1e3a55] rounded-xl w-[400px] shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#142235]">
+          <span className="text-sm font-semibold text-slate-100">{title}</span>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-200 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Check size={16} className="text-emerald-400" />
+            <span className="text-xs text-slate-200">{result.success} 个操作成功</span>
+          </div>
+          {result.fail.length > 0 && (
+            <div className="bg-red-600/10 border border-red-500/30 rounded-md p-3 space-y-1.5">
+              <div className="text-[11px] font-medium text-red-400">失败详情：</div>
+              {result.fail.map(f => (
+                <div key={f.id} className="text-[10px] text-slate-400">{f.name}: {f.reason}</div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center justify-end px-5 py-4 border-t border-[#142235]">
+          <button
+            onClick={onClose}
+            className="px-5 py-2 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium transition-colors"
+          >
+            OK
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
