@@ -11,6 +11,7 @@ import { ModelUploadPage } from './pages/ModelUploadPage';
 import { IntegrationPage } from './pages/IntegrationPage';
 import { SystemAdminPage } from './pages/SystemAdminPage';
 import { AssetVersionManagementPage } from './pages/AssetVersionManagementPage';
+import { AssetEditorPage } from './pages/AssetEditorPage';
 import { ModelLifecyclePage } from './pages/ModelLifecyclePage';
 
 export const router = createBrowserRouter([
@@ -24,6 +25,7 @@ export const router = createBrowserRouter([
   { path: '/asset-library', Component: AssetLibraryPage },
   { path: '/asset-library/lifecycle', Component: ModelLifecyclePage },
   { path: '/asset-library/asset-versions/:assetId', Component: AssetVersionManagementPage },
+  { path: '/asset-library/:assetId/editor', Component: AssetEditorPage },
   { path: '/asset-library/:category', Component: AssetLibraryPage },
   { path: '/asset-library/upload', Component: ModelUploadPage },
 
