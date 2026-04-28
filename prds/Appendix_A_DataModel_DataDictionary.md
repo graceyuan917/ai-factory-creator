@@ -229,7 +229,7 @@ erDiagram
 | project | project_code | 项目编码 | VARCHAR(50) | 是 | - | - | 唯一索引 | 组织内唯一编码 |
 | project | project_name | 项目名称 | VARCHAR(100) | 是 | - | - | - | 项目显示名称 |
 | project | description | 描述 | TEXT | 否 | NULL | - | - | 项目详细描述 |
-| project | status | 状态 | VARCHAR(20) | 是 | "DRAFT" | DRAFT, IN_PROGRESS, REVIEW, PUBLISHED, ARCHIVED | - | 项目状态 |
+| project | status | 状态 | VARCHAR(20) | 是 | "DRAFT" | DRAFT, COMPLETED, PUBLISHED, ARCHIVED | - | 项目状态 |
 | project | layout_config | 布局配置 | JSON | 是 | {} | - | - | 布局尺寸、坐标系等 |
 | project | project_settings | 项目设置 | JSON | 是 | {} | - | - | 权限、集成配置等 |
 | project | version_number | 版本号 | INTEGER | 是 | 1 | - | ≥1 | 当前版本号 |

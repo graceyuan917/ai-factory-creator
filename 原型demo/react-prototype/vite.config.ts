@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename)
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  base: './', // 关键配置，避免资源路径错误
   server: {
     port: 5174,
     host: true, // 允许外部访问

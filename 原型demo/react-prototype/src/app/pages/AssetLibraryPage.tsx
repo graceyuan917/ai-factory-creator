@@ -5,9 +5,13 @@ import {
   Grid3X3, List, Plus, Edit2, X, SlidersHorizontal, Check,
   Move, RotateCcw, MousePointer2, ZoomIn, Maximize2, Settings,
   Cpu, GitBranch, Box, Activity, Wifi, BarChart3, Info, History, Trash2,
-  Download, CheckSquare, Copy, ExternalLink,
+  Download, CheckSquare, Copy, Eye,
 } from 'lucide-react';
 import { assetLibraryCategories, type AssetItem, type AssetLibraryCategory, type AssetSubCategory, type AssetStatus } from '../data/mockData';
+
+const MOCK_DATA_VERSION = '1.0';
+const LOCAL_STORAGE_KEY = 'asset-library-categories';
+const LOCAL_STORAGE_VERSION_KEY = 'asset-library-categories-version';
 
 const ASSET_STATUS_CONFIG: Record<AssetStatus, { label: string; cls: string }> = {
   draft:    { label: 'Draft',   cls: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
@@ -26,8 +30,6 @@ const PROCESS_OPTIONS = [
 ];
 
 const TYPE_OPTIONS = ['产线', '设备', '公辅机房', '治具', '仓储'];
-
-const LOCAL_STORAGE_KEY = 'asset-library-categories';
 
 function genId(): string {
   return `cat_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
@@ -67,9 +69,14 @@ export function AssetLibraryPage() {
     fail: { id: string; name: string; reason: string }[];
   } | null>(null);
 
-  // ── Categories state (mutable, persisted) ─────────────────────────────────
+  // ── Categories state (mutable, persisted, version-gated) ─────────────────
   const [categories, setCategories] = useState<AssetLibraryCategory[]>(() => {
     try {
+      const savedVersion = localStorage.getItem(LOCAL_STORAGE_VERSION_KEY);
+      if (savedVersion !== MOCK_DATA_VERSION) {
+        localStorage.removeItem(LOCAL_STORAGE_KEY);
+        return [...assetLibraryCategories];
+      }
       const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
       return saved ? (JSON.parse(saved) as AssetLibraryCategory[]) : [...assetLibraryCategories];
     } catch {
@@ -89,9 +96,10 @@ export function AssetLibraryPage() {
     catId?: string;
   } | null>(null);
 
-  // Persist to localStorage
+  // Persist to localStorage (with version for cache invalidation)
   useEffect(() => {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(categories));
+    localStorage.setItem(LOCAL_STORAGE_VERSION_KEY, MOCK_DATA_VERSION);
   }, [categories]);
 
   // ── CRUD handlers ──────────────────────────────────────────────────────
@@ -755,7 +763,8 @@ export function AssetLibraryPage() {
                     onCopy={() => setCopyingAsset(item)}
                   />
                 ))}
-                <div className="bg-[#0b1d30] border border-dashed border-[#1e3a55] rounded-lg flex flex-col items-center justify-center h-44 cursor-pointer hover:border-blue-500/60 hover:bg-[#0e243a] transition-all group">
+                <div className="bg-[#0b1d30] border border-dashed border-[#1e3a55] rounded-lg flex flex-col items-center justify-center h-44 cursor-pointer hover:border-blue-500/60 hover:bg-[#0e243a] transition-all group"
+                  onClick={() => navigate('/asset-library/new/editor')}>
                   <Plus size={22} className="text-slate-600 group-hover:text-blue-400 transition-colors" />
                   <span className="text-[11px] text-slate-600 mt-2 group-hover:text-slate-400 transition-colors">Add Asset</span>
                 </div>
@@ -807,7 +816,7 @@ export function AssetLibraryPage() {
                 className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/40"
               >
                 <div className="flex items-center gap-1.5 text-white text-xs bg-blue-600/80 px-3 py-1.5 rounded-md">
-                  <ExternalLink size={12} /> Open Editor
+                  <Eye size={12} /> Open Editor
                 </div>
               </button>
             </div>
@@ -844,7 +853,7 @@ export function AssetLibraryPage() {
                 onClick={() => navigate(`/asset-library/${selectedAsset.id}/editor`)}
                 className="w-full text-xs bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 hover:border-blue-500/60 text-blue-300 px-3 py-2 rounded-md transition-colors flex items-center justify-center gap-1.5"
               >
-                <ExternalLink size={11} /> Open Editor
+                <Eye size={11} /> Open Editor
               </button>
               <button
                 onClick={() => setCopyingAsset(selectedAsset)}
@@ -1116,7 +1125,7 @@ function AssetCard({
             className="bg-blue-600/80 hover:bg-blue-600 rounded p-1 transition-colors"
             title="Open Editor"
           >
-            <ExternalLink size={10} className="text-white" />
+            <Eye size={10} className="text-white" />
           </button>
         </div>
       </div>
@@ -1189,7 +1198,7 @@ function AssetListRow({
           className="text-slate-400 hover:text-blue-400 transition-colors p-1"
           title="Open Editor"
         >
-          <ExternalLink size={12} />
+          <Eye size={12} />
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onEdit(); }}
