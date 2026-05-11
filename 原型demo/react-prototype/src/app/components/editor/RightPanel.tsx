@@ -1,17 +1,18 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Cog, Check, X, Edit2, FileText, Zap, Activity, BarChart3, Wifi, AlertCircle, MousePointer2,
 } from 'lucide-react';
 import type { FactoryNode, ProjectStatus } from '../../data/mockData';
 import {
-  findNode, findParentLine, detectConflicts, INITIAL_BINDING_MAP,
+  findNode, findParentLine, detectConflicts,
   type RightTab, type BindingType, type BindingRecord, type PlatformRecord, type ConflictModalState,
 } from '../../types/factoryEditor';
 import { FactoryConfigPanel, ProcessConfigPanel, LineConfigPanel, LedgerPanel, IoTPanel, EventsPanel, MonitoringPanel, MetricsPanel } from './ConfigPanels';
 import { BindPickerModal, ConflictDiffModal, LineMismatchModal } from './BindingComponents';
 
 export function RightPanel({
-  selectedNode, rightTab, onTabChange, projectStatus, projectId, factoryTree, onTreeNodeStatusChange, onNodeUpdate
+  selectedNode, rightTab, onTabChange, projectStatus, projectId, factoryTree, onTreeNodeStatusChange, onNodeUpdate,
+  bindingMap, onSetBindingMap,
 }: {
   selectedNode: FactoryNode | null;
   rightTab: RightTab;
@@ -21,6 +22,8 @@ export function RightPanel({
   factoryTree: FactoryNode;
   onTreeNodeStatusChange: (nodeId: string, newStatus: FactoryNode['status']) => void;
   onNodeUpdate?: (nodeId: string, updates: Partial<FactoryNode>) => void;
+  bindingMap: Record<string, BindingRecord>;
+  onSetBindingMap: React.Dispatch<React.SetStateAction<Record<string, BindingRecord>>>;
 }) {
   const isFactory = selectedNode?.type === 'factory';
   const isProcess = selectedNode?.type === 'process';
@@ -40,34 +43,7 @@ export function RightPanel({
   function cancelEdit() { setIsEditing(false); }
 
   // ── Binding state ──────────────────────────────────────────────────────────
-  // Keys use compound format: `${nodeId}_${BindingType}`, e.g. 'smt01-line_BASIC_DATA'
-  const [bindingMap, setBindingMap] = useState<Record<string, BindingRecord>>(INITIAL_BINDING_MAP);
   const [bindModalNode, setBindModalNode] = useState<{ id: string; bindingType: BindingType; nodeType: 'factory' | 'line' | 'equipment' } | null>(null);
-
-  // Sync initial binding map → tree node status dots on first render
-  const BINDING_TYPES_LIST: BindingType[] = ['BASIC_DATA', 'LEDGER', 'IOT', 'EVENTS', 'MONITOR', 'METRICS'];
-  useEffect(() => {
-    const synced: Record<string, FactoryNode['status']> = {};
-    Object.entries(INITIAL_BINDING_MAP).forEach(([key, record]) => {
-      for (const type of BINDING_TYPES_LIST) {
-        if (key.endsWith(`_${type}`)) {
-          const nodeId = key.slice(0, -(type.length + 1));
-          const existing = synced[nodeId];
-          if (record.status === 'bound' && existing !== 'configured') {
-            synced[nodeId] = 'configured';
-          } else if (record.status === 'error' && existing == null) {
-            synced[nodeId] = 'error';
-          } else if (record.status === 'partial' && existing == null) {
-            synced[nodeId] = 'partial';
-          }
-          break;
-        }
-      }
-    });
-    Object.entries(synced).forEach(([nodeId, status]) => {
-      onTreeNodeStatusChange(nodeId, status);
-    });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [conflictModal, setConflictModal] = useState<ConflictModalState | null>(null);
   const [lineMismatchModal, setLineMismatchModal] = useState<{
     recordLineName: string; currentLineName: string;
@@ -83,7 +59,7 @@ export function RightPanel({
 
   function applyBind(nodeId: string, bindingType: BindingType, record: PlatformRecord) {
     const now = new Date().toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-');
-    setBindingMap((m) => ({
+    onSetBindingMap((m) => ({
       ...m,
       [bindKey(nodeId, bindingType)]: { externalId: record.id, externalName: record.name, sourceSystem: 'ERP', lastSync: now, status: 'bound' },
     }));
@@ -124,7 +100,7 @@ export function RightPanel({
   }
 
   function handleUnbind(nodeId: string, bindingType: BindingType) {
-    setBindingMap((m) => { const n = { ...m }; delete n[bindKey(nodeId, bindingType)]; return n; });
+    onSetBindingMap((m) => { const n = { ...m }; delete n[bindKey(nodeId, bindingType)]; return n; });
     onTreeNodeStatusChange(nodeId, 'empty');
   }
 

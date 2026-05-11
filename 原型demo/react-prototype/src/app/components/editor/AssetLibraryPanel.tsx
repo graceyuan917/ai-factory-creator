@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import { ChevronDown, ChevronRight, Search, Box, Layers3 } from 'lucide-react';
 
 type AssetNode = { id: string; label: string; children?: AssetNode[] };
-type AssetCat  = { id: string; label: string; icon: string; color: string; children: AssetNode[] };
+type AssetCat  = { id: string; label: string; icon: string; color: string; nodeType: 'line' | 'equipment'; children: AssetNode[] };
 
 const ASSET_CATEGORIES: AssetCat[] = [
   {
-    id: 'equipment', label: 'Production Equipment', icon: '⚙', color: 'text-blue-400',
+    id: 'equipment', label: 'Production Equipment', icon: '⚙', color: 'text-blue-400', nodeType: 'equipment',
     children: [
       { id: 'a-smt', label: 'Chip Mounters', children: [
         { id: 'a-juki',  label: 'JUKI KE-3020 High-Speed Mounter' },
@@ -29,7 +29,7 @@ const ASSET_CATEGORIES: AssetCat[] = [
     ],
   },
   {
-    id: 'lines', label: 'Production Lines', icon: '▣', color: 'text-emerald-400',
+    id: 'lines', label: 'Production Lines', icon: '▣', color: 'text-emerald-400', nodeType: 'line',
     children: [
       { id: 'l-smt', label: 'SMT Line Template', children: [] },
       { id: 'l-pth', label: 'PTH Line Template', children: [] },
@@ -37,21 +37,21 @@ const ASSET_CATEGORIES: AssetCat[] = [
     ],
   },
   {
-    id: 'fixtures', label: 'Fixtures & Jigs', icon: '◈', color: 'text-amber-400',
+    id: 'fixtures', label: 'Fixtures & Jigs', icon: '◈', color: 'text-amber-400', nodeType: 'equipment',
     children: [
       { id: 'f-jig1', label: 'Wave Solder Carrier Jig', children: [] },
       { id: 'f-jig2', label: 'Test Fixture', children: [] },
     ],
   },
   {
-    id: 'facility', label: 'Facility Equipment', icon: '◉', color: 'text-violet-400',
+    id: 'facility', label: 'Facility Equipment', icon: '◉', color: 'text-violet-400', nodeType: 'equipment',
     children: [
       { id: 'fac-hvac', label: 'HVAC Air Handling Unit', children: [] },
       { id: 'fac-ups',  label: 'UPS Power System', children: [] },
     ],
   },
   {
-    id: 'storage', label: 'Storage & Logistics', icon: '▷', color: 'text-slate-400',
+    id: 'storage', label: 'Storage & Logistics', icon: '▷', color: 'text-slate-400', nodeType: 'equipment',
     children: [
       { id: 's-rack', label: 'Automated Storage Rack', children: [] },
       { id: 's-agv',  label: 'AGV Transport Vehicle', children: [] },
@@ -59,16 +59,26 @@ const ASSET_CATEGORIES: AssetCat[] = [
   },
 ];
 
-function AssetLibraryNode({ node, depth }: { node: AssetNode; depth: number }) {
+function AssetLibraryNode({ node, depth, nodeType }: { node: AssetNode; depth: number; nodeType: 'line' | 'equipment' }) {
   const [open, setOpen] = useState(depth === 0);
   const hasChildren = (node.children?.length ?? 0) > 0;
   const isLeaf = !hasChildren;
+
+  function handleDragStart(e: React.DragEvent) {
+    e.dataTransfer.setData('application/x-factory-node', JSON.stringify({
+      assetId: node.id,
+      assetName: node.label,
+      nodeType,
+    }));
+    e.dataTransfer.effectAllowed = 'copy';
+  }
 
   return (
     <div>
       <div
         onClick={() => hasChildren && setOpen((o) => !o)}
         draggable={isLeaf}
+        onDragStart={isLeaf ? handleDragStart : undefined}
         className={`flex items-center gap-1 py-0.5 rounded-sm mx-1 transition-colors text-[10px] ${
           isLeaf
             ? 'cursor-grab text-slate-400 hover:text-blue-300 hover:bg-blue-600/10 active:cursor-grabbing'
@@ -87,7 +97,7 @@ function AssetLibraryNode({ node, depth }: { node: AssetNode; depth: number }) {
         <span className="truncate">{node.label}</span>
       </div>
       {open && hasChildren && node.children!.map((child) => (
-        <AssetLibraryNode key={child.id} node={child} depth={depth + 1} />
+        <AssetLibraryNode key={child.id} node={child} depth={depth + 1} nodeType={nodeType} />
       ))}
     </div>
   );
@@ -152,7 +162,7 @@ export function AssetLibraryPanel() {
               <span className="ml-auto text-[9px] text-slate-600">{cat.children.length}</span>
             </button>
             {openCats.has(cat.id) && cat.children.map((node) => (
-              <AssetLibraryNode key={node.id} node={node} depth={1} />
+              <AssetLibraryNode key={node.id} node={node} depth={1} nodeType={cat.nodeType} />
             ))}
           </div>
         ))}
@@ -162,7 +172,7 @@ export function AssetLibraryPanel() {
       </div>
 
       <div className="px-2 py-1.5 border-t border-[#142235]">
-        <div className="text-[9px] text-slate-700 text-center">Drag assets into the 3D viewport</div>
+        <div className="text-[9px] text-slate-700 text-center">Drag assets into the 3D viewport or tree</div>
       </div>
     </div>
   );

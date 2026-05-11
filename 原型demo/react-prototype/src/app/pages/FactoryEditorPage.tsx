@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import {
   ChevronRight, ChevronLeft, Plus, MoreHorizontal,
@@ -18,14 +18,17 @@ import { ValidationModal } from '../components/editor/ValidationModal';
 import { ActionBtn } from '../components/editor/UiComponents';
 import { TreeNode } from '../components/editor/TreePanel';
 import { AssetLibraryPanel } from '../components/editor/AssetLibraryPanel';
+import { UnassignedPanel } from '../components/editor/UnassignedPanel';
 import { Viewport3D } from '../components/editor/Viewport3D';
 import { RightPanel } from '../components/editor/RightPanel';
 import { USDUploadModal } from '../components/editor/USDUploadModal';
 import { updateTreeStatuses } from '../utils/statusCalculator';
 import {
   findNode, getNodePath, updateNodeStatus, updateNodeData,
+  addChildNode, removeNode, moveNode, validateReparent, getDefaultChildPosition,
   type RightTab, type ViewMode, type USDFile,
-  STATUS_CONFIG,
+  type BindingRecord, type BindingType,
+  INITIAL_BINDING_MAP, STATUS_CONFIG,
 } from '../types/factoryEditor';
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -68,6 +71,30 @@ const [leftCollapsed, setLeftCollapsed] = useState(false);
     { id: 'f2', name: 'smt_conveyor_belt.usd', size: 8.2, format: 'usd', uploadedAt: '2025-01-12', status: 'uploaded' },
     { id: 'f3', name: 'robot_arm_v2.usdz', size: 15.4, format: 'usdz', uploadedAt: '2025-01-14', status: 'linked' },
   ]);
+
+  const [bindingMap, setBindingMap] = useState<Record<string, BindingRecord>>(INITIAL_BINDING_MAP);
+  const [unassignedNodes, setUnassignedNodes] = useState<FactoryNode[]>([]);
+
+  // Sync initial binding map → tree node status dots
+  useEffect(() => {
+    const BINDING_TYPES_LIST: BindingType[] = ['BASIC_DATA', 'LEDGER', 'IOT', 'EVENTS', 'MONITOR', 'METRICS'];
+    const synced: Record<string, FactoryNode['status']> = {};
+    Object.entries(INITIAL_BINDING_MAP).forEach(([key, record]) => {
+      for (const type of BINDING_TYPES_LIST) {
+        if (key.endsWith(`_${type}`)) {
+          const nodeId = key.slice(0, -(type.length + 1));
+          const existing = synced[nodeId];
+          if (record.status === 'bound' && existing !== 'configured') synced[nodeId] = 'configured';
+          else if (record.status === 'error' && existing == null) synced[nodeId] = 'error';
+          else if (record.status === 'partial' && existing == null) synced[nodeId] = 'partial';
+          break;
+        }
+      }
+    });
+    Object.entries(synced).forEach(([nodeId, status]) => {
+      setFactoryTree((prev) => updateNodeStatus(prev, nodeId, status));
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedNode = useMemo(
     () => findNode(factoryTree, selectedNodeId),
@@ -157,6 +184,79 @@ const [leftCollapsed, setLeftCollapsed] = useState(false);
     if (projectStatus === 'complete') {
       setProjectStatus('published');
     }
+  }
+
+  // ── Drag-and-drop callbacks ──────────────────────────────────────────────
+
+  function genId(prefix: string) {
+    return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  }
+
+  /** Drop from asset library onto canvas → goes to Unassigned */
+  function handleCanvasDrop(payload: { assetId: string; assetName: string; nodeType: 'line' | 'equipment' }) {
+    const newNode: FactoryNode = {
+      id: genId('unassigned'),
+      name: payload.assetName,
+      type: payload.nodeType,
+      code: payload.assetId,
+      status: 'empty',
+      children: payload.nodeType === 'line' ? [] : undefined,
+    };
+    setUnassignedNodes((prev) => [...prev, newNode]);
+  }
+
+  /** Drop from asset library onto a tree node → direct assignment */
+  function handleAssetDrop(parentNodeId: string, payload: { assetId: string; assetName: string; nodeType: 'line' | 'equipment' }) {
+    const newNode: FactoryNode = {
+      id: genId(payload.nodeType === 'line' ? 'line' : 'eq'),
+      name: payload.assetName,
+      type: payload.nodeType,
+      code: payload.assetId,
+      status: 'empty',
+      children: payload.nodeType === 'line' ? [] : undefined,
+    };
+    setFactoryTree((prev) => {
+      const updated = addChildNode(prev, parentNodeId, newNode);
+      return updateTreeStatuses(updated);
+    });
+    setExpandedNodes((prev) => new Set([...prev, parentNodeId]));
+  }
+
+  /** Drop from Unassigned panel onto a tree node → assign to parent */
+  function handleUnassignedDrop(nodeId: string, parentNodeId: string) {
+    const unassignedNode = unassignedNodes.find((n) => n.id === nodeId);
+    if (!unassignedNode) return;
+    setUnassignedNodes((prev) => prev.filter((n) => n.id !== nodeId));
+    setFactoryTree((prev) => {
+      const updated = addChildNode(prev, parentNodeId, unassignedNode);
+      return updateTreeStatuses(updated);
+    });
+    setExpandedNodes((prev) => new Set([...prev, parentNodeId]));
+  }
+
+  /** Drop tree node onto another tree node → reparent */
+  function handleNodeReparent(nodeId: string, newParentId: string) {
+    setFactoryTree((prev) => {
+      const updated = moveNode(prev, nodeId, newParentId);
+      return updateTreeStatuses(updated);
+    });
+    setExpandedNodes((prev) => new Set([...prev, newParentId]));
+  }
+
+  /** Validate reparent for visual feedback */
+  function handleValidateReparent(nodeId: string, newParentId: string) {
+    return validateReparent(factoryTree, nodeId, newParentId, bindingMap);
+  }
+
+  /** Remove a node from unassigned */
+  function handleRemoveUnassigned(nodeId: string) {
+    setUnassignedNodes((prev) => prev.filter((n) => n.id !== nodeId));
+  }
+
+  /** Select an unassigned node */
+  function handleSelectUnassigned(nodeId: string) {
+    setSelectedNodeId(nodeId);
+    setRightTab('base');
   }
 
   return (
@@ -267,6 +367,14 @@ const [leftCollapsed, setLeftCollapsed] = useState(false);
               {/* 3D Asset Library */}
               <AssetLibraryPanel />
 
+              {/* Unassigned Nodes — staging area for drag-and-drop */}
+              <UnassignedPanel
+                nodes={unassignedNodes}
+                selectedId={selectedNodeId}
+                onSelect={handleSelectUnassigned}
+                onRemove={handleRemoveUnassigned}
+              />
+
               {/* Factory Tree */}
               <div className="flex items-center justify-between px-2 py-1.5 border-b border-[#142235] flex-shrink-0">
                 <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
@@ -291,6 +399,10 @@ const [leftCollapsed, setLeftCollapsed] = useState(false);
                   onSelect={handleTreeNodeClick}
                   onToggle={toggleExpand}
                   onDrillIn={handleDrillIn}
+                  onAssetDrop={handleAssetDrop}
+                  onUnassignedDrop={handleUnassignedDrop}
+                  onNodeReparent={handleNodeReparent}
+                  validateReparent={handleValidateReparent}
                 />
               </div>
             </>
@@ -308,6 +420,7 @@ const [leftCollapsed, setLeftCollapsed] = useState(false);
               breadcrumb={breadcrumb}
               onBreadcrumbClick={handleDrillIn}
               onCanvasNodeClick={handleTreeNodeClick}
+              onCanvasDrop={handleCanvasDrop}
             />
           </div>
         </div>
@@ -327,6 +440,8 @@ const [leftCollapsed, setLeftCollapsed] = useState(false);
             const updatedTree = updateNodeData(factoryTree, nodeId, updates);
             setFactoryTree(updatedTree);
           }}
+          bindingMap={bindingMap}
+          onSetBindingMap={setBindingMap}
         />
       </div>
 

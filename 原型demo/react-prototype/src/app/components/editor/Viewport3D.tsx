@@ -224,6 +224,7 @@ export function Viewport3D({
   breadcrumb,
   onBreadcrumbClick,
   onCanvasNodeClick,
+  onCanvasDrop,
 }: {
   selectedNode: FactoryNode | null;
   viewMode: ViewMode;
@@ -231,9 +232,38 @@ export function Viewport3D({
   breadcrumb: FactoryNode[];
   onBreadcrumbClick: (id: string) => void;
   onCanvasNodeClick: (id: string) => void;
+  onCanvasDrop?: (payload: { assetId: string; assetName: string; nodeType: 'line' | 'equipment' }) => void;
 }) {
   // ── Floor view: derive highlight type from selected node ──
   const highlightType = viewMode === 'floor' ? selectedNode?.type ?? null : null;
+
+  // ── Canvas drop state ──
+  const [isDragOverCanvas, setIsDragOverCanvas] = useState(false);
+
+  function handleCanvasDragOver(e: React.DragEvent) {
+    if (e.dataTransfer.types.includes('application/x-factory-node')) {
+      e.preventDefault();
+      setIsDragOverCanvas(true);
+    }
+  }
+
+  function handleCanvasDragLeave(e: React.DragEvent) {
+    if ((e.currentTarget as HTMLElement).contains(e.relatedTarget as HTMLElement)) return;
+    setIsDragOverCanvas(false);
+  }
+
+  function handleCanvasDrop(e: React.DragEvent) {
+    setIsDragOverCanvas(false);
+    if (e.dataTransfer.types.includes('application/x-factory-node')) {
+      try {
+        const raw = e.dataTransfer.getData('application/x-factory-node');
+        if (raw) {
+          const payload = JSON.parse(raw);
+          onCanvasDrop?.(payload);
+        }
+      } catch { /* ignore */ }
+    }
+  }
 
   return (
     <div className="w-full h-full relative flex flex-col overflow-hidden bg-[#07111e]">
@@ -274,7 +304,21 @@ export function Viewport3D({
       )}
 
       {/* ── Main canvas area ── */}
-      <div className="flex-1 relative flex items-center justify-center overflow-hidden">
+      <div
+        className="flex-1 relative flex items-center justify-center overflow-hidden"
+        onDragOver={handleCanvasDragOver}
+        onDragLeave={handleCanvasDragLeave}
+        onDrop={handleCanvasDrop}
+      >
+        {/* Drag-over overlay */}
+        {isDragOverCanvas && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-blue-600/5 border-2 border-dashed border-blue-400/40 rounded-lg pointer-events-none">
+            <div className="bg-[#0d1f33] border border-blue-400/40 rounded-lg px-4 py-2 text-[11px] text-blue-300">
+              Release to add to Unassigned
+            </div>
+          </div>
+        )}
+
         {/* Viewport Toolbar */}
         <ViewportToolbar />
 

@@ -101,6 +101,131 @@ export function updateNode(tree: FactoryNode, nodeId: string, updater: (node: Fa
   return { ...tree, children: tree.children.map((c) => updateNode(c, nodeId, updater)) };
 }
 
+// ── Tree Manipulation Utilities ───────────────────────────────────────────
+
+/** Add a child node to the specified parent. Returns a new tree. */
+export function addChildNode(tree: FactoryNode, parentId: string, child: FactoryNode): FactoryNode {
+  if (tree.id === parentId) {
+    return { ...tree, children: [...(tree.children ?? []), child] };
+  }
+  if (!tree.children) return tree;
+  return { ...tree, children: tree.children.map((c) => addChildNode(c, parentId, child)) };
+}
+
+/** Remove a node from its parent. Returns the modified tree and the removed node. */
+export function removeNode(tree: FactoryNode, nodeId: string): { tree: FactoryNode; removed: FactoryNode | null } {
+  if (!tree.children) return { tree, removed: null };
+  const childIndex = tree.children.findIndex((c) => c.id === nodeId);
+  if (childIndex !== -1) {
+    const removed = tree.children[childIndex];
+    const newChildren = [...tree.children];
+    newChildren.splice(childIndex, 1);
+    return { tree: { ...tree, children: newChildren }, removed };
+  }
+  for (const child of tree.children) {
+    const result = removeNode(child, nodeId);
+    if (result.removed) {
+      return {
+        tree: { ...tree, children: tree.children.map((c) => (c.id === child.id ? result.tree : c)) },
+        removed: result.removed,
+      };
+    }
+  }
+  return { tree, removed: null };
+}
+
+/** Move a node from its current parent to a new parent. Returns a new tree. */
+export function moveNode(tree: FactoryNode, nodeId: string, newParentId: string): FactoryNode {
+  const { tree: treeWithout, removed } = removeNode(tree, nodeId);
+  if (!removed) return tree;
+  return addChildNode(treeWithout, newParentId, removed);
+}
+
+/** Returns all descendant nodes of the given node that have bound ledger bindings. */
+export function findBoundEquipmentDescendants(node: FactoryNode, bindingMap: Record<string, BindingRecord>): FactoryNode[] {
+  const result: FactoryNode[] = [];
+  function walk(n: FactoryNode) {
+    if (n.type === 'equipment') {
+      const ledgerKey = `${n.id}_LEDGER`;
+      const binding = bindingMap[ledgerKey];
+      if (binding && binding.status === 'bound') result.push(n);
+    }
+    for (const child of n.children ?? []) walk(child);
+  }
+  walk(node);
+  return result;
+}
+
+/**
+ * Validate whether a node can be reparented under a new parent.
+ * Checks: type compatibility, circular reference, and business data binding constraints.
+ */
+export function validateReparent(
+  tree: FactoryNode,
+  nodeId: string,
+  newParentId: string,
+  bindingMap: Record<string, BindingRecord>,
+): { valid: boolean; reason?: string } {
+  const node = findNode(tree, nodeId);
+  const newParent = findNode(tree, newParentId);
+  if (!node || !newParent) return { valid: false, reason: 'Node not found' };
+
+  if (node.type === 'factory') return { valid: false, reason: 'Cannot move the root Factory node' };
+  if (nodeId === newParentId) return { valid: false, reason: 'Cannot move a node to itself' };
+  if (findNode(node, newParentId)) return { valid: false, reason: 'Cannot move a node into its own child' };
+
+  // Type compatibility
+  if (node.type === 'process' && newParent.type !== 'factory') return { valid: false, reason: 'Process can only be placed under Factory' };
+  if (node.type === 'line' && newParent.type !== 'process') return { valid: false, reason: 'Line can only be placed under Process' };
+  if (node.type === 'equipment' && newParent.type !== 'line') return { valid: false, reason: 'Equipment can only be placed under Line' };
+
+  // Binding compatibility for equipment
+  if (node.type === 'equipment') {
+    const ledgerKey = `${nodeId}_LEDGER`;
+    const ledgerBinding = bindingMap[ledgerKey];
+    if (ledgerBinding && ledgerBinding.status === 'bound' && ledgerBinding.externalId) {
+      const record = PLATFORM_RECORDS.find((r) => r.id === ledgerBinding.externalId);
+      if (record?.parentLineId && record.parentLineId !== newParentId) {
+        const recordLine = findNode(tree, record.parentLineId);
+        return { valid: false, reason: `Equipment ledger record belongs to "${recordLine?.name || record.parentLineId}", cannot move to different line` };
+      }
+    }
+  }
+
+  // Binding compatibility for line
+  if (node.type === 'line') {
+    const basicDataKey = `${nodeId}_BASIC_DATA`;
+    const basicBinding = bindingMap[basicDataKey];
+    if (basicBinding && basicBinding.status === 'bound' && basicBinding.externalId) {
+      const record = PLATFORM_RECORDS.find((r) => r.id === basicBinding.externalId);
+      if (record?.process && record.process !== newParent.name) {
+        return { valid: false, reason: `Line is bound to process "${record.process}", cannot move to "${newParent.name}"` };
+      }
+    }
+    // Check children equipment for bound ledger records
+    const boundChildren = findBoundEquipmentDescendants(node, bindingMap);
+    if (boundChildren.length > 0) {
+      return { valid: false, reason: `${boundChildren.length} equipment(s) under this line have ledger bindings. Unbind them first.` };
+    }
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Get a default 3D anchor position for a new child node based on the parent's type
+ * and the number of existing siblings (for stagger offset).
+ */
+export function getDefaultChildPosition(parentNode: FactoryNode, existingSiblingCount: number): { x: number; y: number } {
+  if (parentNode.type === 'line') {
+    return { x: 80 + existingSiblingCount * 60, y: 160 };
+  }
+  if (parentNode.type === 'process') {
+    return { x: 200, y: 60 + existingSiblingCount * 40 };
+  }
+  return { x: 290, y: 180 };
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────
 
 export const NODE_STATUS_TEXT: Record<string, string> = {
